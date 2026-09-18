@@ -368,6 +368,63 @@ def get_messages(
     ]
 
 
+@app.delete("/messages/{message_id}")
+async def delete_outgoing_message(
+    message_id: int,
+    db: Session = Depends(get_db)
+):
+    message = db.query(Message).filter(
+        Message.id == message_id
+    ).first()
+
+    if not message:
+        raise HTTPException(
+            status_code=404,
+            detail="Message not found"
+        )
+
+    if message.direction != "outgoing":
+        raise HTTPException(
+            status_code=400,
+            detail="Only outgoing messages can be deleted from CRM"
+        )
+
+    contact = db.query(Contact).filter(
+        Contact.id == message.contact_id
+    ).first()
+
+    phone = contact.phone if contact else None
+
+    db.delete(message)
+    db.commit()
+
+    if contact:
+        last_message = (
+            db.query(Message)
+            .filter(Message.contact_id == contact.id)
+            .order_by(Message.created_at.desc())
+            .first()
+        )
+
+        contact.updated_at = (
+            last_message.created_at
+            if last_message else datetime.utcnow()
+        )
+        db.commit()
+
+    if phone:
+        await broadcast_event({
+            "type": "message_deleted",
+            "phone": phone,
+            "message_id": message_id,
+        })
+
+    return {
+        "success": True,
+        "message_id": message_id
+    }
+
+
 @app.post("/send-message")
 async def send_message(
     request: Request,
