@@ -1191,3 +1191,49 @@ def broadcast_history(
         }
         for run in runs
     ]
+
+
+
+@app.get("/broadcast/history/{broadcast_id}/deliveries")
+def broadcast_delivery_details(
+    broadcast_id: int,
+    db: Session = Depends(get_db)
+):
+    run = db.query(BroadcastRun).filter(
+        BroadcastRun.id == broadcast_id
+    ).first()
+
+    if not run:
+        raise HTTPException(
+            status_code=404,
+            detail="Broadcast not found"
+        )
+
+    deliveries = (
+        db.query(BroadcastDelivery)
+        .filter(BroadcastDelivery.broadcast_id == broadcast_id)
+        .order_by(BroadcastDelivery.id.asc())
+        .all()
+    )
+
+    return {
+        "broadcast_id": run.id,
+        "template_name": run.template_name,
+        "language": run.language,
+        "audience_count": run.audience_count,
+        "success_count": run.success_count,
+        "failed_count": run.failed_count,
+        "created_at": run.created_at,
+        "deliveries": [
+            {
+                "id": delivery.id,
+                "contact_id": delivery.contact_id,
+                "phone": delivery.phone,
+                "status": delivery.status,
+                "whatsapp_message_id": delivery.whatsapp_message_id,
+                "error": delivery.error,
+                "created_at": delivery.created_at,
+            }
+            for delivery in deliveries
+        ],
+    }
