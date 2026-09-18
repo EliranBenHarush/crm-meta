@@ -168,3 +168,33 @@ def send_whatsapp_media(
         json=payload,
         timeout=30
     )
+
+
+def get_whatsapp_media(media_id: str):
+    meta_url = (
+        f"https://graph.facebook.com/{GRAPH_VERSION}/"
+        f"{media_id}"
+    )
+
+    meta_response = requests.get(
+        meta_url,
+        headers=_auth_headers(),
+        timeout=30
+    )
+
+    if meta_response.status_code >= 400:
+        return meta_response, None
+
+    meta_data = meta_response.json()
+    download_url = meta_data.get("url")
+
+    if not download_url:
+        return meta_response, None
+
+    file_response = requests.get(
+        download_url,
+        headers=_auth_headers(),
+        timeout=60
+    )
+
+    return meta_response, file_response
