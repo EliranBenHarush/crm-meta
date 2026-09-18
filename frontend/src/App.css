@@ -518,3 +518,53 @@ input {
   opacity: 0.6;
   cursor: wait;
 }
+
+
+.sidebar-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.total-unread,
+.unread-badge {
+  background: #00a884;
+  color: #fff;
+  font-weight: 700;
+  border-radius: 999px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+}
+
+.unread-badge {
+  min-width: 20px;
+  height: 20px;
+  font-size: 11px;
+  padding: 0 6px;
+}
+
+.conversation.unread {
+  background: #fbfffd;
+}
+
+.conversation.unread .conversation-top strong {
+  font-weight: 800;
+}
+
+.conversation.unread .last-message {
+  color: #30363b;
+  font-weight: 600;
+}
+
+.conversation-top-side {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+}
