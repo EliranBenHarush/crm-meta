@@ -568,3 +568,113 @@ input {
   gap: 7px;
   flex-shrink: 0;
 }
+
+
+.customer-panel {
+  overflow-y: auto;
+}
+
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.crm-tag {
+  border: none;
+  background: #eef7f4;
+  color: #087f69;
+  border-radius: 999px;
+  padding: 6px 9px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.crm-tag:hover {
+  background: #dff2eb;
+}
+
+.crm-inline-form {
+  display: flex;
+  gap: 7px;
+}
+
+.crm-inline-form input {
+  min-width: 0;
+  flex: 1;
+  border: 1px solid #dfe3e8;
+  border-radius: 8px;
+  padding: 9px 10px;
+  outline: none;
+}
+
+.crm-inline-form button,
+.save-note-button {
+  border: none;
+  background: #00a884;
+  color: #fff;
+  border-radius: 8px;
+  padding: 9px 11px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.crm-inline-form button:disabled,
+.save-note-button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.note-input {
+  width: 100%;
+  min-height: 78px;
+  resize: vertical;
+  border: 1px solid #dfe3e8;
+  border-radius: 8px;
+  padding: 10px;
+  font-family: inherit;
+  outline: none;
+}
+
+.note-input:focus,
+.crm-inline-form input:focus {
+  border-color: #00a884;
+  box-shadow: 0 0 0 2px rgba(0, 168, 132, 0.12);
+}
+
+.save-note-button {
+  width: 100%;
+  margin-top: 8px;
+}
+
+.notes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.note-item {
+  background: #f7f8fa;
+  border-radius: 8px;
+  padding: 9px 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13px;
+}
+
+.note-item small {
+  display: block;
+  color: #8a8f98;
+  font-size: 10px;
+  margin-top: 6px;
+}
+
+.empty-crm-text {
+  display: block;
+  color: #999;
+  margin-bottom: 8px;
+}
