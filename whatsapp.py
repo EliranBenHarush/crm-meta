@@ -7,12 +7,18 @@ WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN")
 GRAPH_VERSION = "v26.0"
 
 
-def _headers():
+def _auth_headers():
     if not WHATSAPP_TOKEN:
         raise Exception("WHATSAPP_TOKEN is not configured")
 
     return {
-        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+        "Authorization": f"Bearer {WHATSAPP_TOKEN}"
+    }
+
+
+def _headers():
+    return {
+        **_auth_headers(),
         "Content-Type": "application/json"
     }
 
@@ -102,6 +108,59 @@ def send_whatsapp_template(
         "type": "template",
         "template": template
     }
+
+    return requests.post(
+        url,
+        headers=_headers(),
+        json=payload,
+        timeout=30
+    )
+
+
+def upload_whatsapp_media(filename: str, content: bytes, content_type: str):
+    url = (
+        f"https://graph.facebook.com/{GRAPH_VERSION}/"
+        f"{PHONE_NUMBER_ID}/media"
+    )
+
+    return requests.post(
+        url,
+        headers=_auth_headers(),
+        data={"messaging_product": "whatsapp"},
+        files={"file": (filename, content, content_type)},
+        timeout=60
+    )
+
+
+def send_whatsapp_media(
+    to: str,
+    media_type: str,
+    media_id: str,
+    caption: str | None = None,
+    filename: str | None = None
+):
+    if media_type not in {"image", "video", "audio", "document"}:
+        raise ValueError("Unsupported media type")
+
+    media = {"id": media_id}
+
+    if caption and media_type in {"image", "video", "document"}:
+        media["caption"] = caption
+
+    if filename and media_type == "document":
+        media["filename"] = filename
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": media_type,
+        media_type: media
+    }
+
+    url = (
+        f"https://graph.facebook.com/{GRAPH_VERSION}/"
+        f"{PHONE_NUMBER_ID}/messages"
+    )
 
     return requests.post(
         url,
