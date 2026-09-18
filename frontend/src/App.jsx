@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import "./App.css";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
@@ -8,36 +8,68 @@ function App() {
   const [selected, setSelected] = useState(null);
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState("");
+  const selectedRef = useRef(null);
 
   useEffect(() => {
     loadConversations();
+
+    const events = new EventSource(`${API}/events`);
+
+    events.onmessage = async (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+
+        if (payload.type !== "new_message") return;
+
+        await loadConversations(false);
+
+        const current = selectedRef.current;
+
+        if (current?.phone === payload.phone) {
+          await loadMessages(payload.phone);
+        }
+      } catch (error) {
+        console.error("SSE event error:", error);
+      }
+    };
+
+    events.onerror = (error) => {
+      console.error("SSE connection error:", error);
+      // EventSource reconnects automatically.
+    };
+
+    return () => {
+      events.close();
+    };
   }, []);
 
-  async function loadConversations() {
+  async function loadConversations(autoSelect = true) {
     const res = await fetch(`${API}/conversations`);
     const data = await res.json();
     setConversations(data);
 
-    if (data.length > 0 && !selected) {
-      selectConversation(data[0]);
+    if (data.length > 0 && !selectedRef.current && autoSelect) {
+      await selectConversation(data[0]);
     }
   }
 
-  async function selectConversation(conversation) {
-    setSelected(conversation);
-
-    const res = await fetch(
-      `${API}/messages/${conversation.phone}`
-    );
-
+  async function loadMessages(phone) {
+    const res = await fetch(`${API}/messages/${phone}`);
     const data = await res.json();
     setMessages(data);
   }
 
+  async function selectConversation(conversation) {
+    selectedRef.current = conversation;
+    setSelected(conversation);
+    await loadMessages(conversation.phone);
+  }
+
   async function sendMessage() {
-    if (!selected || !text.trim()) return;
+    if (!selectedRef.current || !text.trim()) return;
 
     const messageText = text;
+    const current = selectedRef.current;
     setText("");
 
     const res = await fetch(`${API}/send-message`, {
@@ -46,7 +78,7 @@ function App() {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        phone: selected.phone,
+        phone: current.phone,
         text: messageText,
       }),
     });
@@ -57,8 +89,10 @@ function App() {
       return;
     }
 
-    await selectConversation(selected);
-    await loadConversations();
+    // SSE will normally refresh this immediately. These calls also make
+    // sending feel responsive if the SSE reconnects at the same moment.
+    await loadMessages(current.phone);
+    await loadConversations(false);
   }
 
   return (
