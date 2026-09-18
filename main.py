@@ -1,5 +1,10 @@
+import asyncio
+import json
+import os
+
 from fastapi import FastAPI, Request, Response, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from datetime import datetime
 
@@ -22,7 +27,24 @@ app.add_middleware(
 )
 
 
-VERIFY_TOKEN = "arcadia_crm_verify_2026"
+VERIFY_TOKEN = os.getenv("VERIFY_TOKEN", "arcadia_crm_verify_2026")
+
+# One Railway replica is currently used, so an in-memory SSE broadcaster is enough.
+# If we scale to multiple backend replicas later, replace this with Redis Pub/Sub.
+sse_clients = set()
+
+
+async def broadcast_event(event):
+    dead_clients = []
+
+    for queue in list(sse_clients):
+        try:
+            queue.put_nowait(event)
+        except Exception:
+            dead_clients.append(queue)
+
+    for queue in dead_clients:
+        sse_clients.discard(queue)
 
 
 def get_db():
@@ -40,6 +62,40 @@ def home():
         "status": "ok",
         "app": "Arcadia CRM"
     }
+
+
+@app.get("/events")
+async def events(request: Request):
+    queue = asyncio.Queue()
+    sse_clients.add(queue)
+
+    async def event_stream():
+        try:
+            # Tell the browser the stream is connected.
+            yield 'event: connected\ndata: {"status":"ok"}\n\n'
+
+            while True:
+                if await request.is_disconnected():
+                    break
+
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=15)
+                    yield f"data: {json.dumps(event, ensure_ascii=False, default=str)}\n\n"
+                except asyncio.TimeoutError:
+                    # Keep the connection alive through proxies/load balancers.
+                    yield ": keepalive\n\n"
+        finally:
+            sse_clients.discard(queue)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.get("/webhook/whatsapp")
@@ -148,6 +204,24 @@ async def receive_whatsapp(
 
         db.add(new_message)
         db.commit()
+        db.refresh(new_message)
+        db.refresh(contact)
+
+        await broadcast_event({
+            "type": "new_message",
+            "phone": phone,
+            "contact_id": contact.id,
+            "name": contact.name,
+            "status": contact.status,
+            "message": {
+                "id": new_message.id,
+                "direction": new_message.direction,
+                "type": new_message.message_type,
+                "body": new_message.body,
+                "created_at": new_message.created_at,
+            },
+            "updated_at": contact.updated_at,
+        })
 
         return {
             "status": "saved"
@@ -290,6 +364,24 @@ async def send_message(
     contact.updated_at = datetime.utcnow()
 
     db.commit()
+    db.refresh(message)
+    db.refresh(contact)
+
+    await broadcast_event({
+        "type": "new_message",
+        "phone": phone,
+        "contact_id": contact.id,
+        "name": contact.name,
+        "status": contact.status,
+        "message": {
+            "id": message.id,
+            "direction": message.direction,
+            "type": message.message_type,
+            "body": message.body,
+            "created_at": message.created_at,
+        },
+        "updated_at": contact.updated_at,
+    })
 
     return {
         "success": True,
