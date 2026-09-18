@@ -31,7 +31,8 @@ function App() {
 
         if (
           payload.type !== "new_message" &&
-          payload.type !== "contact_updated"
+          payload.type !== "contact_updated" &&
+          payload.type !== "conversation_read"
         ) {
           return;
         }
@@ -43,6 +44,10 @@ function App() {
         if (current?.phone === payload.phone) {
           if (payload.type === "new_message") {
             await loadMessages(payload.phone);
+
+            if (payload.message?.direction === "incoming") {
+              await markConversationRead(payload.phone);
+            }
           }
 
           if (payload.type === "contact_updated") {
@@ -69,6 +74,16 @@ function App() {
       events.close();
     };
   }, []);
+
+  const totalUnread = useMemo(
+    () =>
+      conversations.reduce(
+        (total, conversation) =>
+          total + (conversation.unread_count || 0),
+        0
+      ),
+    [conversations]
+  );
 
   const filteredConversations = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -119,6 +134,36 @@ function App() {
     selectedRef.current = conversation;
     setSelected(conversation);
     await loadMessages(conversation.phone);
+
+    if ((conversation.unread_count || 0) > 0) {
+      await markConversationRead(conversation.phone);
+    }
+  }
+
+  async function markConversationRead(phone) {
+    const res = await fetch(`${API}/contacts/${phone}/read`, {
+      method: "POST",
+    });
+
+    if (!res.ok) return;
+
+    setConversations((current) =>
+      current.map((conversation) =>
+        conversation.phone === phone
+          ? { ...conversation, unread_count: 0 }
+          : conversation
+      )
+    );
+
+    if (selectedRef.current?.phone === phone) {
+      const updated = {
+        ...selectedRef.current,
+        unread_count: 0,
+      };
+
+      selectedRef.current = updated;
+      setSelected(updated);
+    }
   }
 
   async function updateStatus(status) {
@@ -187,7 +232,12 @@ function App() {
     <div className="crm" dir="rtl">
       <aside className="sidebar">
         <div className="sidebar-header">
-          <h2>Arcadia CRM</h2>
+          <div className="sidebar-title-row">
+            <h2>Arcadia CRM</h2>
+            {totalUnread > 0 && (
+              <span className="total-unread">{totalUnread}</span>
+            )}
+          </div>
           <span>WhatsApp</span>
         </div>
 
@@ -206,11 +256,13 @@ function App() {
             filteredConversations.map((c) => (
               <button
                 key={c.id}
-                className={
-                  selected?.id === c.id
-                    ? "conversation active"
-                    : "conversation"
-                }
+                className={[
+                  "conversation",
+                  selected?.id === c.id ? "active" : "",
+                  (c.unread_count || 0) > 0 ? "unread" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
                 onClick={() => selectConversation(c)}
               >
                 <div className="avatar">
@@ -220,7 +272,13 @@ function App() {
                 <div className="conversation-info">
                   <div className="conversation-top">
                     <strong>{c.name || c.phone}</strong>
-                    <small>
+                    <div className="conversation-top-side">
+                      {(c.unread_count || 0) > 0 && (
+                        <span className="unread-badge">
+                          {c.unread_count}
+                        </span>
+                      )}
+                      <small>
                       {c.updated_at
                         ? new Date(c.updated_at).toLocaleTimeString(
                             "he-IL",
@@ -230,7 +288,8 @@ function App() {
                             }
                           )
                         : ""}
-                    </small>
+                      </small>
+                    </div>
                   </div>
 
                   <div className="conversation-meta">
