@@ -18,6 +18,9 @@ function App() {
   const [selected, setSelected] = useState(null);
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState("");
+  const [mediaFile, setMediaFile] = useState(null);
+  const [mediaSending, setMediaSending] = useState(false);
+  const fileInputRef = useRef(null);
   const [search, setSearch] = useState("");
   const [statusSaving, setStatusSaving] = useState(false);
   const [notes, setNotes] = useState([]);
@@ -599,7 +602,59 @@ function App() {
     }
   }
 
+  function pickMedia(event) {
+    const file = event.target.files?.[0] || null;
+    setMediaFile(file);
+  }
+
+  function clearMedia() {
+    setMediaFile(null);
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  }
+
+  async function sendMedia() {
+    const current = selectedRef.current;
+
+    if (!current || !mediaFile || mediaSending) return;
+
+    setMediaSending(true);
+
+    try {
+      const form = new FormData();
+      form.append("phone", current.phone);
+      form.append("file", mediaFile);
+      form.append("caption", text.trim());
+
+      const res = await fetch(`${API}/send-media`, {
+        method: "POST",
+        body: form,
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        alert(JSON.stringify(data));
+        return;
+      }
+
+      setText("");
+      clearMedia();
+      await loadMessages(current.phone);
+      await loadConversations(false);
+    } finally {
+      setMediaSending(false);
+    }
+  }
+
   async function sendMessage() {
+    if (mediaFile) {
+      await sendMedia();
+      return;
+    }
+
     if (!selectedRef.current || !text.trim()) return;
 
     const messageText = text;
@@ -747,7 +802,21 @@ function App() {
                       : "message incoming"
                   }
                 >
-                  <div>{m.body || `[${m.type}]`}</div>
+                  <div className="message-content">
+                    {m.type !== "text" && (
+                      <div className="media-label">
+                        {m.type === "image" && "📷 תמונה"}
+                        {m.type === "video" && "🎬 וידאו"}
+                        {m.type === "audio" && "🎵 אודיו"}
+                        {m.type === "document" && "📄 מסמך"}
+                        {m.type === "template" && "📝 תבנית"}
+                        {!["image", "video", "audio", "document", "template"].includes(m.type) &&
+                          `[${m.type}]`}
+                      </div>
+                    )}
+                    {m.body && <div>{m.body}</div>}
+                    {!m.body && m.type === "text" && <div>[הודעה]</div>}
+                  </div>
 
                   <small>
                     {new Date(m.created_at).toLocaleTimeString(
@@ -762,17 +831,56 @@ function App() {
               ))}
             </div>
 
+            {mediaFile && (
+              <div className="media-preview">
+                <div>
+                  <strong>קובץ מצורף</strong>
+                  <span>{mediaFile.name}</span>
+                </div>
+                <button type="button" onClick={clearMedia} title="הסר קובץ">
+                  ×
+                </button>
+              </div>
+            )}
+
             <div className="composer">
+              <input
+                ref={fileInputRef}
+                className="media-file-input"
+                type="file"
+                accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip"
+                onChange={pickMedia}
+              />
+
+              <button
+                type="button"
+                className="attach-button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={mediaSending}
+                title="צרף תמונה, וידאו, אודיו או מסמך"
+              >
+                📎
+              </button>
+
               <input
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") sendMessage();
+                  if (e.key === "Enter" && !mediaSending) sendMessage();
                 }}
-                placeholder="כתוב הודעה..."
+                placeholder={
+                  mediaFile
+                    ? "הוסף כיתוב לקובץ (לא חובה)..."
+                    : "כתוב הודעה..."
+                }
               />
 
-              <button onClick={sendMessage}>שלח</button>
+              <button
+                onClick={sendMessage}
+                disabled={mediaSending || (!mediaFile && !text.trim())}
+              >
+                {mediaSending ? "שולח..." : "שלח"}
+              </button>
             </div>
           </>
         ) : (
