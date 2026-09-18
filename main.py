@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 
 from database import Base, engine, SessionLocal
-from models import Contact, Message, ConversationState, ContactNote, ContactTag
+from models import Contact, Message, ConversationState, ContactNote, ContactTag, ContactAssignment, FollowUpReminder
 from whatsapp import send_whatsapp_message
 
 
@@ -545,6 +545,17 @@ def get_contact_crm(
         .all()
     )
 
+    assignment = db.query(ContactAssignment).filter(
+        ContactAssignment.contact_id == contact.id
+    ).first()
+
+    reminders = (
+        db.query(FollowUpReminder)
+        .filter(FollowUpReminder.contact_id == contact.id)
+        .order_by(FollowUpReminder.due_at.asc())
+        .all()
+    )
+
     return {
         "notes": [
             {
@@ -561,6 +572,17 @@ def get_contact_crm(
                 "created_at": tag.created_at,
             }
             for tag in tags
+        ],
+        "assignee": assignment.assignee if assignment else None,
+        "reminders": [
+            {
+                "id": reminder.id,
+                "note": reminder.note,
+                "due_at": reminder.due_at,
+                "completed_at": reminder.completed_at,
+                "created_at": reminder.created_at,
+            }
+            for reminder in reminders
         ],
     }
 
@@ -723,3 +745,170 @@ async def delete_contact_tag(
     })
 
     return {"success": True}
+
+
+
+@app.patch("/contacts/{phone}/assignee")
+async def update_contact_assignee(
+    phone: str,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    data = await request.json()
+    assignee = (data.get("assignee") or "").strip() or None
+
+    if assignee and len(assignee) > 80:
+        raise HTTPException(
+            status_code=400,
+            detail="Assignee name is too long"
+        )
+
+    contact = db.query(Contact).filter(
+        Contact.phone == phone
+    ).first()
+
+    if not contact:
+        raise HTTPException(
+            status_code=404,
+            detail="Contact not found"
+        )
+
+    assignment = db.query(ContactAssignment).filter(
+        ContactAssignment.contact_id == contact.id
+    ).first()
+
+    if not assignment:
+        assignment = ContactAssignment(
+            contact_id=contact.id,
+            assignee=assignee
+        )
+        db.add(assignment)
+    else:
+        assignment.assignee = assignee
+        assignment.updated_at = datetime.utcnow()
+
+    db.commit()
+    db.refresh(assignment)
+
+    await broadcast_event({
+        "type": "contact_crm_updated",
+        "phone": contact.phone,
+        "contact_id": contact.id,
+        "resource": "assignee",
+    })
+
+    return {
+        "success": True,
+        "assignee": assignment.assignee
+    }
+
+
+@app.post("/contacts/{phone}/reminders")
+async def add_follow_up_reminder(
+    phone: str,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    data = await request.json()
+    note = (data.get("note") or "").strip()
+    due_at_raw = (data.get("due_at") or "").strip()
+
+    if not note:
+        raise HTTPException(
+            status_code=400,
+            detail="Reminder note is required"
+        )
+
+    if len(note) > 500:
+        raise HTTPException(
+            status_code=400,
+            detail="Reminder note is too long"
+        )
+
+    try:
+        due_at = datetime.fromisoformat(due_at_raw)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid reminder date"
+        )
+
+    contact = db.query(Contact).filter(
+        Contact.phone == phone
+    ).first()
+
+    if not contact:
+        raise HTTPException(
+            status_code=404,
+            detail="Contact not found"
+        )
+
+    reminder = FollowUpReminder(
+        contact_id=contact.id,
+        note=note,
+        due_at=due_at
+    )
+
+    db.add(reminder)
+    db.commit()
+    db.refresh(reminder)
+
+    await broadcast_event({
+        "type": "contact_crm_updated",
+        "phone": contact.phone,
+        "contact_id": contact.id,
+        "resource": "reminder",
+    })
+
+    return {
+        "id": reminder.id,
+        "note": reminder.note,
+        "due_at": reminder.due_at,
+        "completed_at": reminder.completed_at,
+        "created_at": reminder.created_at,
+    }
+
+
+@app.patch("/contacts/{phone}/reminders/{reminder_id}/complete")
+async def complete_follow_up_reminder(
+    phone: str,
+    reminder_id: int,
+    db: Session = Depends(get_db)
+):
+    contact = db.query(Contact).filter(
+        Contact.phone == phone
+    ).first()
+
+    if not contact:
+        raise HTTPException(
+            status_code=404,
+            detail="Contact not found"
+        )
+
+    reminder = db.query(FollowUpReminder).filter(
+        FollowUpReminder.id == reminder_id,
+        FollowUpReminder.contact_id == contact.id
+    ).first()
+
+    if not reminder:
+        raise HTTPException(
+            status_code=404,
+            detail="Reminder not found"
+        )
+
+    reminder.completed_at = datetime.utcnow()
+    db.commit()
+    db.refresh(reminder)
+
+    await broadcast_event({
+        "type": "contact_crm_updated",
+        "phone": contact.phone,
+        "contact_id": contact.id,
+        "resource": "reminder",
+    })
+
+    return {
+        "success": True,
+        "id": reminder.id,
+        "completed_at": reminder.completed_at
+    }
