@@ -28,6 +28,11 @@ function App() {
   const [text, setText] = useState("");
   const [mediaFile, setMediaFile] = useState(null);
   const [mediaSending, setMediaSending] = useState(false);
+  const [productPickerOpen, setProductPickerOpen] = useState(false);
+  const [productSearch, setProductSearch] = useState("");
+  const [products, setProducts] = useState([]);
+  const [productLoading, setProductLoading] = useState(false);
+  const [productSendingId, setProductSendingId] = useState(null);
   const [messageMenuId, setMessageMenuId] = useState(null);
   const [editingMessage, setEditingMessage] = useState(null);
   const [replyToMessage, setReplyToMessage] = useState(null);
@@ -625,6 +630,69 @@ function App() {
     }
   }
 
+  async function loadProducts(query = "") {
+    setProductLoading(true);
+
+    try {
+      const url = new URL(`${API}/products/search`);
+      if (query.trim()) {
+        url.searchParams.set("q", query.trim());
+      }
+
+      const res = await fetch(url.toString());
+      const data = await res.json();
+
+      if (!res.ok) {
+        alert(JSON.stringify(data));
+        return;
+      }
+
+      setProducts(data);
+    } finally {
+      setProductLoading(false);
+    }
+  }
+
+  async function openProductPicker() {
+    setProductPickerOpen(true);
+    setProductSearch("");
+    await loadProducts("");
+  }
+
+  async function sendProduct(product) {
+    const current = selectedRef.current;
+
+    if (!current || !product?.id || productSendingId) return;
+
+    setProductSendingId(product.id);
+
+    try {
+      const res = await fetch(`${API}/send-product`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          phone: current.phone,
+          product_id: product.id,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        alert(JSON.stringify(data));
+        return;
+      }
+
+      setProductPickerOpen(false);
+      await loadMessages(current.phone);
+      await loadConversations(false);
+    } finally {
+      setProductSendingId(null);
+    }
+  }
+
   function pickMedia(event) {
     const file = event.target.files?.[0] || null;
     setMediaFile(file);
@@ -1141,6 +1209,16 @@ function App() {
                 📎
               </button>
 
+              <button
+                type="button"
+                className="product-button"
+                onClick={openProductPicker}
+                disabled={mediaSending}
+                title="שלח מוצר מהאתר"
+              >
+                🛍️
+              </button>
+
               <input
                 value={text}
                 onChange={(e) => setText(e.target.value)}
@@ -1407,6 +1485,90 @@ function App() {
             )}
           </section>
         </main>
+      )}
+
+      {productPickerOpen && (
+        <div
+          className="product-modal-backdrop"
+          onClick={() => setProductPickerOpen(false)}
+        >
+          <div
+            className="product-modal"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="product-modal-header">
+              <div>
+                <h3>שלח מוצר מהאתר</h3>
+                <span>בחר מוצר והוא יישלח עם תמונה, מחיר וקישור.</span>
+              </div>
+              <button
+                type="button"
+                className="product-modal-close"
+                onClick={() => setProductPickerOpen(false)}
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="product-search-row">
+              <input
+                value={productSearch}
+                onChange={(e) => setProductSearch(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") loadProducts(productSearch);
+                }}
+                placeholder="חפש מוצר לפי שם..."
+                autoFocus
+              />
+              <button
+                type="button"
+                onClick={() => loadProducts(productSearch)}
+                disabled={productLoading}
+              >
+                {productLoading ? "מחפש..." : "חפש"}
+              </button>
+            </div>
+
+            <div className="product-results">
+              {productLoading ? (
+                <div className="product-empty">טוען מוצרים...</div>
+              ) : products.length === 0 ? (
+                <div className="product-empty">לא נמצאו מוצרים.</div>
+              ) : (
+                products.map((product) => (
+                  <div className="product-result" key={product.id}>
+                    <div className="product-thumb">
+                      {product.image ? (
+                        <img src={product.image} alt={product.name} />
+                      ) : (
+                        <span>🛍️</span>
+                      )}
+                    </div>
+
+                    <div className="product-result-info">
+                      <strong>{product.name}</strong>
+                      <span>{product.price || "ללא מחיר"}</span>
+                      {product.is_in_stock === false && (
+                        <small>המלאי אזל</small>
+                      )}
+                    </div>
+
+                    <button
+                      type="button"
+                      className="send-product-button"
+                      onClick={() => sendProduct(product)}
+                      disabled={productSendingId !== null}
+                    >
+                      {productSendingId === product.id
+                        ? "שולח..."
+                        : "שלח"}
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {view === "chat" ? (
