@@ -1,13 +1,23 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
+
+const STATUS_OPTIONS = [
+  "ליד חדש",
+  "בטיפול",
+  "הצעת מחיר",
+  "נסגר",
+  "לא רלוונטי",
+];
 
 function App() {
   const [conversations, setConversations] = useState([]);
   const [selected, setSelected] = useState(null);
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState("");
+  const [search, setSearch] = useState("");
+  const [statusSaving, setStatusSaving] = useState(false);
   const selectedRef = useRef(null);
 
   useEffect(() => {
@@ -19,14 +29,32 @@ function App() {
       try {
         const payload = JSON.parse(event.data);
 
-        if (payload.type !== "new_message") return;
+        if (
+          payload.type !== "new_message" &&
+          payload.type !== "contact_updated"
+        ) {
+          return;
+        }
 
         await loadConversations(false);
 
         const current = selectedRef.current;
 
         if (current?.phone === payload.phone) {
-          await loadMessages(payload.phone);
+          if (payload.type === "new_message") {
+            await loadMessages(payload.phone);
+          }
+
+          if (payload.type === "contact_updated") {
+            const updated = {
+              ...current,
+              status: payload.status,
+              updated_at: payload.updated_at,
+            };
+
+            selectedRef.current = updated;
+            setSelected(updated);
+          }
         }
       } catch (error) {
         console.error("SSE event error:", error);
@@ -35,7 +63,6 @@ function App() {
 
     events.onerror = (error) => {
       console.error("SSE connection error:", error);
-      // EventSource reconnects automatically.
     };
 
     return () => {
@@ -43,12 +70,41 @@ function App() {
     };
   }, []);
 
+  const filteredConversations = useMemo(() => {
+    const query = search.trim().toLowerCase();
+
+    if (!query) return conversations;
+
+    return conversations.filter((conversation) => {
+      const name = (conversation.name || "").toLowerCase();
+      const phone = (conversation.phone || "").toLowerCase();
+      const status = (conversation.status || "").toLowerCase();
+      const lastMessage = (conversation.last_message || "").toLowerCase();
+
+      return (
+        name.includes(query) ||
+        phone.includes(query) ||
+        status.includes(query) ||
+        lastMessage.includes(query)
+      );
+    });
+  }, [conversations, search]);
+
   async function loadConversations(autoSelect = true) {
     const res = await fetch(`${API}/conversations`);
     const data = await res.json();
     setConversations(data);
 
-    if (data.length > 0 && !selectedRef.current && autoSelect) {
+    const current = selectedRef.current;
+
+    if (current) {
+      const refreshed = data.find((item) => item.phone === current.phone);
+
+      if (refreshed) {
+        selectedRef.current = refreshed;
+        setSelected(refreshed);
+      }
+    } else if (data.length > 0 && autoSelect) {
       await selectConversation(data[0]);
     }
   }
@@ -63,6 +119,40 @@ function App() {
     selectedRef.current = conversation;
     setSelected(conversation);
     await loadMessages(conversation.phone);
+  }
+
+  async function updateStatus(status) {
+    const current = selectedRef.current;
+
+    if (!current || statusSaving) return;
+
+    setStatusSaving(true);
+
+    try {
+      const res = await fetch(
+        `${API}/contacts/${current.phone}/status`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ status }),
+        }
+      );
+
+      if (!res.ok) {
+        const error = await res.json();
+        alert(JSON.stringify(error));
+        return;
+      }
+
+      const updated = { ...current, status };
+      selectedRef.current = updated;
+      setSelected(updated);
+      await loadConversations(false);
+    } finally {
+      setStatusSaving(false);
+    }
   }
 
   async function sendMessage() {
@@ -89,8 +179,6 @@ function App() {
       return;
     }
 
-    // SSE will normally refresh this immediately. These calls also make
-    // sending feel responsive if the SSE reconnects at the same moment.
     await loadMessages(current.phone);
     await loadConversations(false);
   }
@@ -104,46 +192,60 @@ function App() {
         </div>
 
         <div className="search">
-          <input placeholder="חיפוש לקוח..." />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="חיפוש שם, טלפון, סטטוס או הודעה..."
+          />
         </div>
 
         <div className="conversation-list">
-          {conversations.map((c) => (
-            <button
-              key={c.id}
-              className={
-                selected?.id === c.id
-                  ? "conversation active"
-                  : "conversation"
-              }
-              onClick={() => selectConversation(c)}
-            >
-              <div className="avatar">
-                {(c.name || "?").charAt(0)}
-              </div>
-
-              <div className="conversation-info">
-                <div className="conversation-top">
-                  <strong>{c.name || c.phone}</strong>
-                  <small>
-                    {c.updated_at
-                      ? new Date(c.updated_at).toLocaleTimeString(
-                          "he-IL",
-                          {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          }
-                        )
-                      : ""}
-                  </small>
+          {filteredConversations.length === 0 ? (
+            <div className="no-results">לא נמצאו לקוחות</div>
+          ) : (
+            filteredConversations.map((c) => (
+              <button
+                key={c.id}
+                className={
+                  selected?.id === c.id
+                    ? "conversation active"
+                    : "conversation"
+                }
+                onClick={() => selectConversation(c)}
+              >
+                <div className="avatar">
+                  {(c.name || "?").charAt(0)}
                 </div>
 
-                <div className="last-message">
-                  {c.last_message || "אין הודעות"}
+                <div className="conversation-info">
+                  <div className="conversation-top">
+                    <strong>{c.name || c.phone}</strong>
+                    <small>
+                      {c.updated_at
+                        ? new Date(c.updated_at).toLocaleTimeString(
+                            "he-IL",
+                            {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            }
+                          )
+                        : ""}
+                    </small>
+                  </div>
+
+                  <div className="conversation-meta">
+                    <span className="status-pill">
+                      {c.status || "ליד חדש"}
+                    </span>
+                  </div>
+
+                  <div className="last-message">
+                    {c.last_message || "אין הודעות"}
+                  </div>
                 </div>
-              </div>
-            </button>
-          ))}
+              </button>
+            ))
+          )}
         </div>
       </aside>
 
@@ -218,7 +320,18 @@ function App() {
 
             <div className="customer-card">
               <span>סטטוס</span>
-              <strong>{selected.status || "ליד חדש"}</strong>
+              <select
+                className="status-select"
+                value={selected.status || "ליד חדש"}
+                onChange={(e) => updateStatus(e.target.value)}
+                disabled={statusSaving}
+              >
+                {STATUS_OPTIONS.map((status) => (
+                  <option key={status} value={status}>
+                    {status}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="customer-card">
