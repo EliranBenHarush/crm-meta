@@ -1024,7 +1024,16 @@ function App() {
   }
 
   return (
-    <div className="crm" dir="rtl">
+    <div
+      className={[
+        "crm",
+        selected ? "has-selected-chat" : "",
+        view === "broadcast" ? "broadcast-mode" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      dir="rtl"
+    >
       <aside className="sidebar">
         <div className="sidebar-header">
           <div className="sidebar-title-row">
@@ -1147,6 +1156,20 @@ function App() {
         {selected ? (
           <>
             <div className="chat-header">
+              <button
+                type="button"
+                className="mobile-back-button"
+                onClick={() => {
+                  selectedRef.current = null;
+                  setSelected(null);
+                  setMessages([]);
+                }}
+                aria-label="חזרה לשיחות"
+                title="חזרה לשיחות"
+              >
+                ‹
+              </button>
+
               <div className="avatar large">
                 {(selected.name || "?").charAt(0)}
               </div>
@@ -1448,6 +1471,16 @@ function App() {
       ) : (
         <main className="broadcast-page">
           <div className="broadcast-header">
+            <button
+              type="button"
+              className="mobile-back-button broadcast-back"
+              onClick={() => setView("chat")}
+              aria-label="חזרה לשיחות"
+              title="חזרה לשיחות"
+            >
+              ‹
+            </button>
+
             <div>
               <h2>שליחת תפוצה ב-WhatsApp</h2>
               <p>
