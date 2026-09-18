@@ -9,8 +9,8 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 
 from database import Base, engine, SessionLocal
-from models import Contact, Message, ConversationState, ContactNote, ContactTag, ContactAssignment, FollowUpReminder
-from whatsapp import send_whatsapp_message
+from models import Contact, Message, ConversationState, ContactNote, ContactTag, ContactAssignment, FollowUpReminder, BroadcastRun, BroadcastDelivery
+from whatsapp import send_whatsapp_message, get_message_templates, send_whatsapp_template
 
 
 Base.metadata.create_all(bind=engine)
@@ -912,3 +912,282 @@ async def complete_follow_up_reminder(
         "id": reminder.id,
         "completed_at": reminder.completed_at
     }
+
+
+
+@app.get("/broadcast/templates")
+def broadcast_templates():
+    response = get_message_templates()
+    data = response.json()
+
+    if response.status_code >= 400:
+        raise HTTPException(
+            status_code=response.status_code,
+            detail=data
+        )
+
+    templates = []
+
+    for template in data.get("data", []):
+        if template.get("status") != "APPROVED":
+            continue
+
+        body_text = ""
+        body_parameter_count = 0
+
+        for component in template.get("components", []):
+            if component.get("type") == "BODY":
+                body_text = component.get("text", "") or ""
+
+                index = 1
+                while f"{{{{{index}}}}}" in body_text:
+                    body_parameter_count += 1
+                    index += 1
+
+        templates.append({
+            "id": template.get("id"),
+            "name": template.get("name"),
+            "status": template.get("status"),
+            "language": template.get("language"),
+            "category": template.get("category"),
+            "body_text": body_text,
+            "body_parameter_count": body_parameter_count,
+            "components": template.get("components", []),
+        })
+
+    return templates
+
+
+@app.get("/broadcast/audience")
+def broadcast_audience(
+    db: Session = Depends(get_db)
+):
+    contacts = db.query(Contact).order_by(
+        Contact.updated_at.desc()
+    ).all()
+
+    result = []
+
+    for contact in contacts:
+        assignment = db.query(ContactAssignment).filter(
+            ContactAssignment.contact_id == contact.id
+        ).first()
+
+        tags = (
+            db.query(ContactTag)
+            .filter(ContactTag.contact_id == contact.id)
+            .order_by(ContactTag.name.asc())
+            .all()
+        )
+
+        result.append({
+            "id": contact.id,
+            "name": contact.name,
+            "phone": contact.phone,
+            "status": contact.status,
+            "assignee": assignment.assignee if assignment else None,
+            "tags": [tag.name for tag in tags],
+        })
+
+    return result
+
+
+@app.post("/broadcast/send")
+async def send_broadcast(
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    data = await request.json()
+
+    template_name = (data.get("template_name") or "").strip()
+    language = (data.get("language") or "").strip()
+    contact_ids = data.get("contact_ids") or []
+    body_parameters = data.get("body_parameters") or []
+
+    if not template_name or not language:
+        raise HTTPException(
+            status_code=400,
+            detail="template_name and language are required"
+        )
+
+    if not isinstance(contact_ids, list) or not contact_ids:
+        raise HTTPException(
+            status_code=400,
+            detail="Select at least one contact"
+        )
+
+    if len(contact_ids) > 500:
+        raise HTTPException(
+            status_code=400,
+            detail="A broadcast is limited to 500 contacts per send"
+        )
+
+    contacts = (
+        db.query(Contact)
+        .filter(Contact.id.in_(contact_ids))
+        .all()
+    )
+
+    if not contacts:
+        raise HTTPException(
+            status_code=404,
+            detail="No contacts found"
+        )
+
+    run = BroadcastRun(
+        template_name=template_name,
+        language=language,
+        audience_count=len(contacts),
+    )
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+
+    semaphore = asyncio.Semaphore(10)
+
+    async def send_one(contact):
+        parameters = []
+
+        for value in body_parameters:
+            rendered = str(value)
+            rendered = rendered.replace(
+                "{name}",
+                contact.name or contact.phone
+            )
+            rendered = rendered.replace(
+                "{phone}",
+                contact.phone
+            )
+            parameters.append(rendered)
+
+        async with semaphore:
+            response = await asyncio.to_thread(
+                send_whatsapp_template,
+                contact.phone,
+                template_name,
+                language,
+                parameters
+            )
+
+        try:
+            api_data = response.json()
+        except Exception:
+            api_data = {
+                "raw": response.text
+            }
+
+        return contact, response.status_code, api_data
+
+    results = await asyncio.gather(
+        *[send_one(contact) for contact in contacts]
+    )
+
+    deliveries = []
+    success_count = 0
+    failed_count = 0
+
+    for contact, status_code, api_data in results:
+        if status_code < 400:
+            success_count += 1
+
+            whatsapp_message_id = None
+
+            if api_data.get("messages"):
+                whatsapp_message_id = (
+                    api_data["messages"][0].get("id")
+                )
+
+            delivery = BroadcastDelivery(
+                broadcast_id=run.id,
+                contact_id=contact.id,
+                phone=contact.phone,
+                status="sent",
+                whatsapp_message_id=whatsapp_message_id,
+            )
+
+            db.add(Message(
+                contact_id=contact.id,
+                whatsapp_message_id=whatsapp_message_id,
+                direction="outgoing",
+                message_type="template",
+                body=f"[תבנית: {template_name}]"
+            ))
+
+            contact.updated_at = datetime.utcnow()
+
+            deliveries.append({
+                "contact_id": contact.id,
+                "name": contact.name,
+                "phone": contact.phone,
+                "status": "sent",
+                "error": None,
+            })
+        else:
+            failed_count += 1
+            error_text = json.dumps(
+                api_data,
+                ensure_ascii=False
+            )
+
+            delivery = BroadcastDelivery(
+                broadcast_id=run.id,
+                contact_id=contact.id,
+                phone=contact.phone,
+                status="failed",
+                error=error_text,
+            )
+
+            deliveries.append({
+                "contact_id": contact.id,
+                "name": contact.name,
+                "phone": contact.phone,
+                "status": "failed",
+                "error": api_data,
+            })
+
+        db.add(delivery)
+
+    run.success_count = success_count
+    run.failed_count = failed_count
+    db.commit()
+
+    await broadcast_event({
+        "type": "broadcast_completed",
+        "broadcast_id": run.id,
+        "success_count": success_count,
+        "failed_count": failed_count,
+    })
+
+    return {
+        "broadcast_id": run.id,
+        "template_name": template_name,
+        "audience_count": len(contacts),
+        "success_count": success_count,
+        "failed_count": failed_count,
+        "deliveries": deliveries,
+    }
+
+
+@app.get("/broadcast/history")
+def broadcast_history(
+    db: Session = Depends(get_db)
+):
+    runs = (
+        db.query(BroadcastRun)
+        .order_by(BroadcastRun.created_at.desc())
+        .limit(20)
+        .all()
+    )
+
+    return [
+        {
+            "id": run.id,
+            "template_name": run.template_name,
+            "language": run.language,
+            "audience_count": run.audience_count,
+            "success_count": run.success_count,
+            "failed_count": run.failed_count,
+            "created_at": run.created_at,
+        }
+        for run in runs
+    ]
