@@ -11,6 +11,8 @@ const STATUS_OPTIONS = [
   "לא רלוונטי",
 ];
 
+const ASSIGNEE_OPTIONS = ["", "אלירן", "אורן"];
+
 function App() {
   const [conversations, setConversations] = useState([]);
   const [selected, setSelected] = useState(null);
@@ -23,6 +25,10 @@ function App() {
   const [noteText, setNoteText] = useState("");
   const [tagText, setTagText] = useState("");
   const [crmSaving, setCrmSaving] = useState(false);
+  const [assignee, setAssignee] = useState("");
+  const [reminders, setReminders] = useState([]);
+  const [reminderText, setReminderText] = useState("");
+  const [reminderAt, setReminderAt] = useState("");
   const selectedRef = useRef(null);
 
   useEffect(() => {
@@ -148,6 +154,8 @@ function App() {
     const data = await res.json();
     setNotes(data.notes || []);
     setTags(data.tags || []);
+    setAssignee(data.assignee || "");
+    setReminders(data.reminders || []);
   }
 
   async function selectConversation(conversation) {
@@ -266,6 +274,95 @@ function App() {
       const res = await fetch(
         `${API}/contacts/${current.phone}/tags/${tagId}`,
         { method: "DELETE" }
+      );
+
+      if (!res.ok) return;
+
+      await loadContactCrm(current.phone);
+    } finally {
+      setCrmSaving(false);
+    }
+  }
+
+  async function updateAssignee(value) {
+    const current = selectedRef.current;
+
+    if (!current || crmSaving) return;
+
+    setCrmSaving(true);
+
+    try {
+      const res = await fetch(
+        `${API}/contacts/${current.phone}/assignee`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ assignee: value }),
+        }
+      );
+
+      if (!res.ok) {
+        const error = await res.json();
+        alert(JSON.stringify(error));
+        return;
+      }
+
+      setAssignee(value);
+    } finally {
+      setCrmSaving(false);
+    }
+  }
+
+  async function addReminder() {
+    const current = selectedRef.current;
+    const note = reminderText.trim();
+
+    if (!current || !note || !reminderAt || crmSaving) return;
+
+    setCrmSaving(true);
+
+    try {
+      const res = await fetch(
+        `${API}/contacts/${current.phone}/reminders`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            note,
+            due_at: reminderAt,
+          }),
+        }
+      );
+
+      if (!res.ok) {
+        const error = await res.json();
+        alert(JSON.stringify(error));
+        return;
+      }
+
+      setReminderText("");
+      setReminderAt("");
+      await loadContactCrm(current.phone);
+    } finally {
+      setCrmSaving(false);
+    }
+  }
+
+  async function completeReminder(reminderId) {
+    const current = selectedRef.current;
+
+    if (!current || crmSaving) return;
+
+    setCrmSaving(true);
+
+    try {
+      const res = await fetch(
+        `${API}/contacts/${current.phone}/reminders/${reminderId}/complete`,
+        { method: "PATCH" }
       );
 
       if (!res.ok) return;
@@ -501,6 +598,114 @@ function App() {
                   </option>
                 ))}
               </select>
+            </div>
+
+            <div className="customer-card">
+              <span>נציג מטפל</span>
+              <select
+                className="status-select"
+                value={assignee}
+                onChange={(e) => updateAssignee(e.target.value)}
+                disabled={crmSaving}
+              >
+                {ASSIGNEE_OPTIONS.map((name) => (
+                  <option key={name || "none"} value={name}>
+                    {name || "לא משויך"}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="customer-card">
+              <span>תזכורת / פולואפ</span>
+
+              <input
+                className="reminder-datetime"
+                type="datetime-local"
+                value={reminderAt}
+                onChange={(e) => setReminderAt(e.target.value)}
+              />
+
+              <textarea
+                className="note-input reminder-note"
+                value={reminderText}
+                onChange={(e) => setReminderText(e.target.value)}
+                placeholder="למשל: לחזור ללקוח לגבי הצעת המחיר"
+                maxLength={500}
+              />
+
+              <button
+                className="save-note-button"
+                onClick={addReminder}
+                disabled={
+                  crmSaving ||
+                  !reminderText.trim() ||
+                  !reminderAt
+                }
+              >
+                הוסף תזכורת
+              </button>
+
+              <div className="reminders-list">
+                {reminders.length === 0 ? (
+                  <small className="empty-crm-text">
+                    אין תזכורות עדיין
+                  </small>
+                ) : (
+                  reminders.map((reminder) => {
+                    const overdue =
+                      !reminder.completed_at &&
+                      new Date(reminder.due_at).getTime() < Date.now();
+
+                    return (
+                      <div
+                        key={reminder.id}
+                        className={[
+                          "reminder-item",
+                          reminder.completed_at ? "completed" : "",
+                          overdue ? "overdue" : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" ")}
+                      >
+                        <div className="reminder-note-text">
+                          {reminder.note}
+                        </div>
+
+                        <small>
+                          {new Date(reminder.due_at).toLocaleString(
+                            "he-IL",
+                            {
+                              day: "2-digit",
+                              month: "2-digit",
+                              year: "2-digit",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            }
+                          )}
+                        </small>
+
+                        {!reminder.completed_at && (
+                          <button
+                            className="complete-reminder-button"
+                            onClick={() =>
+                              completeReminder(reminder.id)
+                            }
+                          >
+                            סמן כבוצע
+                          </button>
+                        )}
+
+                        {reminder.completed_at && (
+                          <strong className="reminder-done">
+                            ✓ בוצע
+                          </strong>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
             </div>
 
             <div className="customer-card">
