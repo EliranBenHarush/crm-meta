@@ -73,3 +73,30 @@ class ContactTag(Base):
     contact_id = Column(Integer, ForeignKey("contacts.id"), nullable=False, index=True)
     name = Column(String, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+
+class ContactAssignment(Base):
+    __tablename__ = "contact_assignments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    contact_id = Column(
+        Integer,
+        ForeignKey("contacts.id"),
+        unique=True,
+        nullable=False,
+        index=True
+    )
+    assignee = Column(String, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class FollowUpReminder(Base):
+    __tablename__ = "follow_up_reminders"
+
+    id = Column(Integer, primary_key=True, index=True)
+    contact_id = Column(Integer, ForeignKey("contacts.id"), nullable=False, index=True)
+    note = Column(Text, nullable=False)
+    due_at = Column(DateTime, nullable=False, index=True)
+    completed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
