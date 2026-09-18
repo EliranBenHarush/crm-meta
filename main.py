@@ -38,6 +38,16 @@ with engine.begin() as connection:
             sql_text("ALTER TABLE messages ADD COLUMN media_filename VARCHAR")
         )
 
+    if "delivery_status" not in existing_columns:
+        connection.execute(
+            sql_text("ALTER TABLE messages ADD COLUMN delivery_status VARCHAR")
+        )
+
+    if "status_updated_at" not in existing_columns:
+        connection.execute(
+            sql_text("ALTER TABLE messages ADD COLUMN status_updated_at TIMESTAMP")
+        )
+
 app = FastAPI(title="Arcadia CRM API")
 
 
@@ -161,6 +171,49 @@ async def receive_whatsapp(
             return {"status": "ignored"}
 
         value = changes[0].get("value", {})
+
+        statuses = value.get("statuses", [])
+
+        if statuses:
+            updated = 0
+
+            for status_event in statuses:
+                whatsapp_message_id = status_event.get("id")
+                delivery_status = status_event.get("status")
+
+                if not whatsapp_message_id or not delivery_status:
+                    continue
+
+                saved_message = db.query(Message).filter(
+                    Message.whatsapp_message_id == whatsapp_message_id
+                ).first()
+
+                if not saved_message:
+                    continue
+
+                saved_message.delivery_status = delivery_status
+                saved_message.status_updated_at = datetime.utcnow()
+                updated += 1
+
+                contact = db.query(Contact).filter(
+                    Contact.id == saved_message.contact_id
+                ).first()
+
+                if contact:
+                    await broadcast_event({
+                        "type": "message_status",
+                        "phone": contact.phone,
+                        "message_id": saved_message.id,
+                        "delivery_status": delivery_status,
+                    })
+
+            if updated:
+                db.commit()
+
+            return {
+                "status": "status_updated",
+                "updated": updated
+            }
 
         messages = value.get("messages", [])
 
@@ -362,6 +415,8 @@ def get_messages(
             "media_id": message.media_id,
             "media_mime": message.media_mime,
             "media_filename": message.media_filename,
+            "delivery_status": message.delivery_status,
+            "status_updated_at": message.status_updated_at,
             "created_at": message.created_at
         }
         for message in messages
@@ -479,7 +534,9 @@ async def send_message(
         whatsapp_message_id=whatsapp_message_id,
         direction="outgoing",
         message_type="text",
-        body=text
+        body=text,
+        delivery_status="accepted",
+        status_updated_at=datetime.utcnow()
     )
 
     db.add(message)
@@ -663,7 +720,9 @@ async def send_media(
         body=display_body,
         media_id=media_id,
         media_mime=content_type,
-        media_filename=file.filename
+        media_filename=file.filename,
+        delivery_status="accepted",
+        status_updated_at=datetime.utcnow()
     )
 
     db.add(message)
