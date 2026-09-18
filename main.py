@@ -387,3 +387,58 @@ async def send_message(
         "success": True,
         "whatsapp": api_data
     }
+
+
+ALLOWED_CONTACT_STATUSES = {
+    "ליד חדש",
+    "בטיפול",
+    "הצעת מחיר",
+    "נסגר",
+    "לא רלוונטי",
+}
+
+
+@app.patch("/contacts/{phone}/status")
+async def update_contact_status(
+    phone: str,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    data = await request.json()
+    status = data.get("status")
+
+    if status not in ALLOWED_CONTACT_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid status"
+        )
+
+    contact = db.query(Contact).filter(
+        Contact.phone == phone
+    ).first()
+
+    if not contact:
+        raise HTTPException(
+            status_code=404,
+            detail="Contact not found"
+        )
+
+    contact.status = status
+    contact.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(contact)
+
+    await broadcast_event({
+        "type": "contact_updated",
+        "phone": contact.phone,
+        "contact_id": contact.id,
+        "name": contact.name,
+        "status": contact.status,
+        "updated_at": contact.updated_at,
+    })
+
+    return {
+        "success": True,
+        "phone": contact.phone,
+        "status": contact.status
+    }
