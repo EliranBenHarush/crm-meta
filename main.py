@@ -1,6 +1,8 @@
 import asyncio
+import html
 import json
 import os
+import requests
 
 from fastapi import FastAPI, Request, Response, Depends, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
@@ -61,6 +63,7 @@ app.add_middleware(
 
 
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN", "arcadia_crm_verify_2026")
+SHOP_BASE_URL = os.getenv("SHOP_BASE_URL", "https://arcdia.co.il").rstrip("/")
 
 # One Railway replica is currently used, so an in-memory SSE broadcaster is enough.
 # If we scale to multiple backend replicas later, replace this with Redis Pub/Sub.
@@ -87,6 +90,52 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def _format_store_price(prices):
+    prices = prices or {}
+    raw = prices.get("price")
+    currency = prices.get("currency_symbol") or "₪"
+    minor = prices.get("currency_minor_unit")
+
+    if raw in (None, ""):
+        return None
+
+    try:
+        minor = int(minor if minor is not None else 2)
+        amount = int(raw) / (10 ** minor)
+        if amount.is_integer():
+            amount_text = f"{int(amount):,}"
+        else:
+            amount_text = f"{amount:,.2f}"
+        return f"{currency}{amount_text}"
+    except Exception:
+        return f"{currency}{raw}"
+
+
+def _normalize_store_product(product):
+    images = product.get("images") or []
+    image_url = images[0].get("src") if images else None
+
+    return {
+        "id": product.get("id"),
+        "name": html.unescape(product.get("name") or ""),
+        "price": _format_store_price(product.get("prices")),
+        "image": image_url,
+        "permalink": product.get("permalink"),
+        "sku": product.get("sku"),
+        "is_in_stock": product.get("is_in_stock"),
+    }
+
+
+def _store_get(path, params=None):
+    url = f"{SHOP_BASE_URL}/wp-json/wc/store/v1/{path.lstrip('/')}"
+    return requests.get(
+        url,
+        params=params,
+        timeout=30,
+        headers={"User-Agent": "Arcadia-CRM/1.0"}
+    )
 
 
 @app.get("/")
@@ -1254,6 +1303,213 @@ async def complete_follow_up_reminder(
         "completed_at": reminder.completed_at
     }
 
+
+
+@app.get("/products/search")
+def search_products(q: str = ""):
+    params = {
+        "per_page": 20,
+        "order": "desc",
+        "orderby": "date",
+    }
+
+    query = (q or "").strip()
+
+    if query:
+        params["search"] = query
+
+    response = _store_get("products", params=params)
+
+    try:
+        data = response.json()
+    except Exception:
+        data = {"raw": response.text}
+
+    if response.status_code >= 400:
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "message": "Could not load products from the store",
+                "store_response": data,
+            }
+        )
+
+    if not isinstance(data, list):
+        raise HTTPException(
+            status_code=502,
+            detail="Unexpected response from WooCommerce Store API"
+        )
+
+    return [_normalize_store_product(product) for product in data]
+
+
+@app.post("/send-product")
+async def send_product(
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    data = await request.json()
+    phone = (data.get("phone") or "").strip()
+    product_id = data.get("product_id")
+
+    if not phone or not product_id:
+        raise HTTPException(
+            status_code=400,
+            detail="phone and product_id are required"
+        )
+
+    product_response = _store_get(f"products/{product_id}")
+
+    try:
+        raw_product = product_response.json()
+    except Exception:
+        raw_product = {"raw": product_response.text}
+
+    if product_response.status_code >= 400:
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "message": "Could not load product from the store",
+                "store_response": raw_product,
+            }
+        )
+
+    product = _normalize_store_product(raw_product)
+    name = product.get("name") or f"מוצר {product_id}"
+    price = product.get("price")
+    permalink = product.get("permalink") or SHOP_BASE_URL
+
+    caption_lines = [f"*{name}*"]
+
+    if price:
+        caption_lines.append(f"מחיר: {price}")
+
+    caption_lines.append(permalink)
+    caption = "\n".join(caption_lines)
+
+    contact = db.query(Contact).filter(
+        Contact.phone == phone
+    ).first()
+
+    if not contact:
+        contact = Contact(phone=phone)
+        db.add(contact)
+        db.commit()
+        db.refresh(contact)
+
+    image_url = product.get("image")
+    send_response = None
+    media_id = None
+    media_mime = None
+    media_filename = None
+    message_type = "text"
+
+    if image_url:
+        try:
+            image_response = requests.get(
+                image_url,
+                timeout=45,
+                headers={"User-Agent": "Arcadia-CRM/1.0"}
+            )
+
+            if image_response.status_code < 400 and image_response.content:
+                media_mime = (
+                    image_response.headers.get("Content-Type")
+                    or "image/jpeg"
+                ).split(";")[0]
+
+                media_filename = f"product-{product_id}"
+
+                upload_response = upload_whatsapp_media(
+                    media_filename,
+                    image_response.content,
+                    media_mime
+                )
+
+                if upload_response.status_code < 400:
+                    upload_data = upload_response.json()
+                    media_id = upload_data.get("id")
+
+                    if media_id:
+                        send_response = send_whatsapp_media(
+                            phone,
+                            "image",
+                            media_id,
+                            caption=caption,
+                            filename=media_filename
+                        )
+                        message_type = "image"
+        except Exception as error:
+            print("PRODUCT IMAGE SEND ERROR:", error)
+
+    if send_response is None:
+        send_response = send_whatsapp_message(phone, caption)
+        message_type = "text"
+        media_id = None
+        media_mime = None
+        media_filename = None
+
+    try:
+        api_data = send_response.json()
+    except Exception:
+        api_data = {"raw": send_response.text}
+
+    if send_response.status_code >= 400:
+        raise HTTPException(
+            status_code=send_response.status_code,
+            detail=api_data
+        )
+
+    whatsapp_message_id = None
+
+    if api_data.get("messages"):
+        whatsapp_message_id = api_data["messages"][0].get("id")
+
+    message = Message(
+        contact_id=contact.id,
+        whatsapp_message_id=whatsapp_message_id,
+        direction="outgoing",
+        message_type=message_type,
+        body=caption,
+        media_id=media_id,
+        media_mime=media_mime,
+        media_filename=media_filename,
+        delivery_status="accepted",
+        status_updated_at=datetime.utcnow()
+    )
+
+    db.add(message)
+    contact.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(message)
+    db.refresh(contact)
+
+    await broadcast_event({
+        "type": "new_message",
+        "phone": phone,
+        "contact_id": contact.id,
+        "name": contact.name,
+        "status": contact.status,
+        "message": {
+            "id": message.id,
+            "direction": message.direction,
+            "type": message.message_type,
+            "body": message.body,
+            "media_id": message.media_id,
+            "media_mime": message.media_mime,
+            "media_filename": message.media_filename,
+            "delivery_status": message.delivery_status,
+            "status_updated_at": message.status_updated_at,
+            "created_at": message.created_at,
+        },
+        "updated_at": contact.updated_at,
+    })
+
+    return {
+        "success": True,
+        "product": product,
+        "whatsapp": api_data
+    }
 
 
 @app.get("/broadcast/templates")
