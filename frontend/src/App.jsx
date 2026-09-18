@@ -29,6 +29,20 @@ function App() {
   const [reminders, setReminders] = useState([]);
   const [reminderText, setReminderText] = useState("");
   const [reminderAt, setReminderAt] = useState("");
+  const [view, setView] = useState("chat");
+  const [templates, setTemplates] = useState([]);
+  const [audience, setAudience] = useState([]);
+  const [broadcastHistory, setBroadcastHistory] = useState([]);
+  const [selectedTemplateKey, setSelectedTemplateKey] = useState("");
+  const [broadcastSearch, setBroadcastSearch] = useState("");
+  const [broadcastStatus, setBroadcastStatus] = useState("");
+  const [broadcastAssignee, setBroadcastAssignee] = useState("");
+  const [broadcastTag, setBroadcastTag] = useState("");
+  const [selectedContactIds, setSelectedContactIds] = useState([]);
+  const [bodyParameters, setBodyParameters] = useState([]);
+  const [broadcastSending, setBroadcastSending] = useState(false);
+  const [broadcastReport, setBroadcastReport] = useState(null);
+  const [consentConfirmed, setConsentConfirmed] = useState(false);
   const selectedRef = useRef(null);
 
   useEffect(() => {
@@ -100,6 +114,60 @@ function App() {
       ),
     [conversations]
   );
+
+  const selectedTemplate = useMemo(
+    () =>
+      templates.find(
+        (template) =>
+          `${template.name}|${template.language}` === selectedTemplateKey
+      ) || null,
+    [templates, selectedTemplateKey]
+  );
+
+  const availableBroadcastTags = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          audience.flatMap((contact) => contact.tags || [])
+        )
+      ).sort(),
+    [audience]
+  );
+
+  const filteredAudience = useMemo(() => {
+    const query = broadcastSearch.trim().toLowerCase();
+
+    return audience.filter((contact) => {
+      const matchesSearch =
+        !query ||
+        (contact.name || "").toLowerCase().includes(query) ||
+        (contact.phone || "").includes(query);
+
+      const matchesStatus =
+        !broadcastStatus || contact.status === broadcastStatus;
+
+      const matchesAssignee =
+        !broadcastAssignee ||
+        (contact.assignee || "") === broadcastAssignee;
+
+      const matchesTag =
+        !broadcastTag ||
+        (contact.tags || []).includes(broadcastTag);
+
+      return (
+        matchesSearch &&
+        matchesStatus &&
+        matchesAssignee &&
+        matchesTag
+      );
+    });
+  }, [
+    audience,
+    broadcastSearch,
+    broadcastStatus,
+    broadcastAssignee,
+    broadcastTag,
+  ]);
 
   const filteredConversations = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -407,6 +475,130 @@ function App() {
     }
   }
 
+  async function openBroadcast() {
+    setView("broadcast");
+    setBroadcastReport(null);
+
+    const [templatesRes, audienceRes, historyRes] = await Promise.all([
+      fetch(`${API}/broadcast/templates`),
+      fetch(`${API}/broadcast/audience`),
+      fetch(`${API}/broadcast/history`),
+    ]);
+
+    if (templatesRes.ok) {
+      const data = await templatesRes.json();
+      setTemplates(data);
+
+      if (data.length > 0 && !selectedTemplateKey) {
+        const firstKey = `${data[0].name}|${data[0].language}`;
+        setSelectedTemplateKey(firstKey);
+        setBodyParameters(
+          Array(data[0].body_parameter_count || 0).fill("")
+        );
+      }
+    }
+
+    if (audienceRes.ok) {
+      setAudience(await audienceRes.json());
+    }
+
+    if (historyRes.ok) {
+      setBroadcastHistory(await historyRes.json());
+    }
+  }
+
+  function chooseTemplate(key) {
+    setSelectedTemplateKey(key);
+
+    const template = templates.find(
+      (item) => `${item.name}|${item.language}` === key
+    );
+
+    setBodyParameters(
+      Array(template?.body_parameter_count || 0).fill("")
+    );
+    setBroadcastReport(null);
+  }
+
+  function toggleBroadcastContact(contactId) {
+    setSelectedContactIds((current) =>
+      current.includes(contactId)
+        ? current.filter((id) => id !== contactId)
+        : [...current, contactId]
+    );
+  }
+
+  function selectFilteredAudience() {
+    const ids = filteredAudience.map((contact) => contact.id);
+
+    const allSelected =
+      ids.length > 0 &&
+      ids.every((id) => selectedContactIds.includes(id));
+
+    if (allSelected) {
+      setSelectedContactIds((current) =>
+        current.filter((id) => !ids.includes(id))
+      );
+    } else {
+      setSelectedContactIds((current) =>
+        Array.from(new Set([...current, ...ids]))
+      );
+    }
+  }
+
+  async function sendBroadcast() {
+    if (
+      !selectedTemplate ||
+      selectedContactIds.length === 0 ||
+      broadcastSending ||
+      !consentConfirmed
+    ) {
+      return;
+    }
+
+    const approved = window.confirm(
+      `לשלוח את התבנית "${selectedTemplate.name}" ל-${selectedContactIds.length} לקוחות?`
+    );
+
+    if (!approved) return;
+
+    setBroadcastSending(true);
+    setBroadcastReport(null);
+
+    try {
+      const res = await fetch(`${API}/broadcast/send`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          template_name: selectedTemplate.name,
+          language: selectedTemplate.language,
+          contact_ids: selectedContactIds,
+          body_parameters: bodyParameters,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        alert(JSON.stringify(data));
+        return;
+      }
+
+      setBroadcastReport(data);
+      setSelectedContactIds([]);
+
+      const historyRes = await fetch(`${API}/broadcast/history`);
+
+      if (historyRes.ok) {
+        setBroadcastHistory(await historyRes.json());
+      }
+    } finally {
+      setBroadcastSending(false);
+    }
+  }
+
   async function sendMessage() {
     if (!selectedRef.current || !text.trim()) return;
 
@@ -446,6 +638,21 @@ function App() {
             )}
           </div>
           <span>WhatsApp</span>
+
+          <div className="main-nav">
+            <button
+              className={view === "chat" ? "active" : ""}
+              onClick={() => setView("chat")}
+            >
+              שיחות
+            </button>
+            <button
+              className={view === "broadcast" ? "active" : ""}
+              onClick={openBroadcast}
+            >
+              תפוצה
+            </button>
+          </div>
         </div>
 
         <div className="search">
@@ -515,6 +722,7 @@ function App() {
         </div>
       </aside>
 
+      {view === "chat" ? (
       <main className="chat">
         {selected ? (
           <>
@@ -573,7 +781,235 @@ function App() {
           </div>
         )}
       </main>
+      ) : (
+        <main className="broadcast-page">
+          <div className="broadcast-header">
+            <div>
+              <h2>שליחת תפוצה ב-WhatsApp</h2>
+              <p>
+                בחר תבנית מאושרת של Meta, סנן לקוחות ושלח.
+              </p>
+            </div>
+            <button className="refresh-button" onClick={openBroadcast}>
+              רענן תבניות
+            </button>
+          </div>
 
+          <div className="broadcast-grid">
+            <section className="broadcast-card">
+              <h3>1. תבנית</h3>
+
+              <select
+                className="broadcast-select"
+                value={selectedTemplateKey}
+                onChange={(e) => chooseTemplate(e.target.value)}
+              >
+                {templates.length === 0 && (
+                  <option value="">לא נמצאו תבניות מאושרות</option>
+                )}
+                {templates.map((template) => {
+                  const key = `${template.name}|${template.language}`;
+
+                  return (
+                    <option key={key} value={key}>
+                      {template.name} · {template.language} · {template.category}
+                    </option>
+                  );
+                })}
+              </select>
+
+              {selectedTemplate && (
+                <>
+                  <div className="template-preview">
+                    <strong>{selectedTemplate.name}</strong>
+                    <div>
+                      {selectedTemplate.body_text || "אין טקסט BODY"}
+                    </div>
+                  </div>
+
+                  {bodyParameters.map((value, index) => (
+                    <input
+                      key={index}
+                      className="broadcast-input"
+                      value={value}
+                      onChange={(e) => {
+                        const next = [...bodyParameters];
+                        next[index] = e.target.value;
+                        setBodyParameters(next);
+                      }}
+                      placeholder={
+                        index === 0
+                          ? `ערך ל-{{${index + 1}}} — אפשר {name}`
+                          : `ערך ל-{{${index + 1}}}`
+                      }
+                    />
+                  ))}
+                </>
+              )}
+            </section>
+
+            <section className="broadcast-card">
+              <h3>2. קהל</h3>
+
+              <div className="broadcast-filters">
+                <input
+                  className="broadcast-input"
+                  value={broadcastSearch}
+                  onChange={(e) => setBroadcastSearch(e.target.value)}
+                  placeholder="חיפוש שם או טלפון"
+                />
+
+                <select
+                  className="broadcast-select"
+                  value={broadcastStatus}
+                  onChange={(e) => setBroadcastStatus(e.target.value)}
+                >
+                  <option value="">כל הסטטוסים</option>
+                  {STATUS_OPTIONS.map((status) => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  className="broadcast-select"
+                  value={broadcastAssignee}
+                  onChange={(e) => setBroadcastAssignee(e.target.value)}
+                >
+                  <option value="">כל הנציגים</option>
+                  <option value="אלירן">אלירן</option>
+                  <option value="אורן">אורן</option>
+                </select>
+
+                <select
+                  className="broadcast-select"
+                  value={broadcastTag}
+                  onChange={(e) => setBroadcastTag(e.target.value)}
+                >
+                  <option value="">כל התגיות</option>
+                  {availableBroadcastTags.map((tag) => (
+                    <option key={tag} value={tag}>
+                      {tag}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="audience-toolbar">
+                <button onClick={selectFilteredAudience}>
+                  בחר/בטל את כל המסוננים
+                </button>
+                <strong>
+                  נבחרו {selectedContactIds.length} מתוך {filteredAudience.length}
+                </strong>
+              </div>
+
+              <div className="audience-list">
+                {filteredAudience.map((contact) => (
+                  <label className="audience-row" key={contact.id}>
+                    <input
+                      type="checkbox"
+                      checked={selectedContactIds.includes(contact.id)}
+                      onChange={() => toggleBroadcastContact(contact.id)}
+                    />
+                    <div>
+                      <strong>{contact.name || contact.phone}</strong>
+                      <span>{contact.phone}</span>
+                      <small>
+                        {contact.status}
+                        {contact.assignee ? ` · ${contact.assignee}` : ""}
+                        {(contact.tags || []).length
+                          ? ` · ${contact.tags.join(", ")}`
+                          : ""}
+                      </small>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </section>
+          </div>
+
+          <section className="broadcast-card send-card">
+            <label className="consent-check">
+              <input
+                type="checkbox"
+                checked={consentConfirmed}
+                onChange={(e) => setConsentConfirmed(e.target.checked)}
+              />
+              <span>
+                אני מאשר שהנמענים שנבחרו נתנו הסכמה לקבלת הודעות WhatsApp
+                מהעסק.
+              </span>
+            </label>
+
+            <button
+              className="send-broadcast-button"
+              onClick={sendBroadcast}
+              disabled={
+                broadcastSending ||
+                !selectedTemplate ||
+                selectedContactIds.length === 0 ||
+                !consentConfirmed
+              }
+            >
+              {broadcastSending
+                ? "שולח..."
+                : `שלח תפוצה ל-${selectedContactIds.length} לקוחות`}
+            </button>
+          </section>
+
+          {broadcastReport && (
+            <section className="broadcast-card">
+              <h3>דוח שליחה</h3>
+              <div className="broadcast-summary">
+                <strong>סה״כ: {broadcastReport.audience_count}</strong>
+                <strong>נשלחו: {broadcastReport.success_count}</strong>
+                <strong>נכשלו: {broadcastReport.failed_count}</strong>
+              </div>
+
+              <div className="delivery-list">
+                {broadcastReport.deliveries.map((delivery) => (
+                  <div
+                    key={delivery.contact_id}
+                    className={`delivery-row ${delivery.status}`}
+                  >
+                    <span>{delivery.name || delivery.phone}</span>
+                    <strong>
+                      {delivery.status === "sent" ? "נשלח ✓" : "נכשל"}
+                    </strong>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          <section className="broadcast-card">
+            <h3>שליחות אחרונות</h3>
+            {broadcastHistory.length === 0 ? (
+              <p className="empty-crm-text">עדיין אין שליחות.</p>
+            ) : (
+              <div className="history-list">
+                {broadcastHistory.map((run) => (
+                  <div className="history-row" key={run.id}>
+                    <div>
+                      <strong>{run.template_name}</strong>
+                      <small>
+                        {new Date(run.created_at).toLocaleString("he-IL")}
+                      </small>
+                    </div>
+                    <span>
+                      {run.success_count}/{run.audience_count} נשלחו
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        </main>
+      )}
+
+      {view === "chat" ? (
       <aside className="customer-panel">
         {selected && (
           <>
@@ -791,6 +1227,17 @@ function App() {
           </>
         )}
       </aside>
+      ) : (
+        <aside className="customer-panel broadcast-side">
+          <h3>תפוצה</h3>
+          <p>
+            התבניות נטענות ישירות מחשבון WhatsApp Business המחובר ל-CRM.
+          </p>
+          <p>
+            ניתן להשתמש ב-{"{name}"} או {"{phone}"} בתוך ערכי המשתנים.
+          </p>
+        </aside>
+      )}
     </div>
   );
 }
