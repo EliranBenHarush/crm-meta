@@ -35,6 +35,8 @@ class Message(Base):
     media_id = Column(String, nullable=True, index=True)
     media_mime = Column(String, nullable=True)
     media_filename = Column(String, nullable=True)
+    delivery_status = Column(String, nullable=True)
+    status_updated_at = Column(DateTime, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
 
