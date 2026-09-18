@@ -6,14 +6,37 @@ from fastapi import FastAPI, Request, Response, Depends, HTTPException, UploadFi
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+from sqlalchemy import inspect, text as sql_text
 from datetime import datetime
 
 from database import Base, engine, SessionLocal
 from models import Contact, Message, ConversationState, ContactNote, ContactTag, ContactAssignment, FollowUpReminder, BroadcastRun, BroadcastDelivery
-from whatsapp import send_whatsapp_message, get_message_templates, send_whatsapp_template, upload_whatsapp_media, send_whatsapp_media
+from whatsapp import send_whatsapp_message, get_message_templates, send_whatsapp_template, upload_whatsapp_media, send_whatsapp_media, get_whatsapp_media
 
 
 Base.metadata.create_all(bind=engine)
+
+# Lightweight migration for existing databases until Alembic is added.
+with engine.begin() as connection:
+    existing_columns = {
+        column["name"]
+        for column in inspect(engine).get_columns("messages")
+    }
+
+    if "media_id" not in existing_columns:
+        connection.execute(
+            sql_text("ALTER TABLE messages ADD COLUMN media_id VARCHAR")
+        )
+
+    if "media_mime" not in existing_columns:
+        connection.execute(
+            sql_text("ALTER TABLE messages ADD COLUMN media_mime VARCHAR")
+        )
+
+    if "media_filename" not in existing_columns:
+        connection.execute(
+            sql_text("ALTER TABLE messages ADD COLUMN media_filename VARCHAR")
+        )
 
 app = FastAPI(title="Arcadia CRM API")
 
@@ -151,9 +174,18 @@ async def receive_whatsapp(
         message_type = message.get("type", "unknown")
 
         body = None
+        media_id = None
+        media_mime = None
+        media_filename = None
 
         if message_type == "text":
             body = message.get("text", {}).get("body")
+        elif message_type in {"image", "video", "audio", "document"}:
+            media_payload = message.get(message_type, {}) or {}
+            media_id = media_payload.get("id")
+            media_mime = media_payload.get("mime_type")
+            media_filename = media_payload.get("filename")
+            body = media_payload.get("caption") or media_filename
 
         contacts = value.get("contacts", [])
 
@@ -199,7 +231,10 @@ async def receive_whatsapp(
             whatsapp_message_id=whatsapp_message_id,
             direction="incoming",
             message_type=message_type,
-            body=body
+            body=body,
+            media_id=media_id,
+            media_mime=media_mime,
+            media_filename=media_filename
         )
 
         db.add(new_message)
@@ -235,6 +270,9 @@ async def receive_whatsapp(
                 "direction": new_message.direction,
                 "type": new_message.message_type,
                 "body": new_message.body,
+                "media_id": new_message.media_id,
+                "media_mime": new_message.media_mime,
+                "media_filename": new_message.media_filename,
                 "created_at": new_message.created_at,
             },
             "updated_at": contact.updated_at,
@@ -321,6 +359,9 @@ def get_messages(
             "direction": message.direction,
             "type": message.message_type,
             "body": message.body,
+            "media_id": message.media_id,
+            "media_mime": message.media_mime,
+            "media_filename": message.media_filename,
             "created_at": message.created_at
         }
         for message in messages
@@ -403,6 +444,9 @@ async def send_message(
             "direction": message.direction,
             "type": message.message_type,
             "body": message.body,
+            "media_id": message.media_id,
+            "media_mime": message.media_mime,
+            "media_filename": message.media_filename,
             "created_at": message.created_at,
         },
         "updated_at": contact.updated_at,
@@ -412,6 +456,48 @@ async def send_message(
         "success": True,
         "whatsapp": api_data
     }
+
+
+@app.get("/media/{media_id}")
+def fetch_media(media_id: str):
+    meta_response, file_response = get_whatsapp_media(media_id)
+
+    if meta_response.status_code >= 400:
+        try:
+            detail = meta_response.json()
+        except Exception:
+            detail = {"raw": meta_response.text}
+
+        raise HTTPException(
+            status_code=meta_response.status_code,
+            detail=detail
+        )
+
+    if file_response is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Media URL not found"
+        )
+
+    if file_response.status_code >= 400:
+        raise HTTPException(
+            status_code=file_response.status_code,
+            detail="Failed to download media"
+        )
+
+    mime_type = (
+        meta_response.json().get("mime_type")
+        or file_response.headers.get("Content-Type")
+        or "application/octet-stream"
+    )
+
+    return Response(
+        content=file_response.content,
+        media_type=mime_type,
+        headers={
+            "Cache-Control": "private, max-age=300"
+        }
+    )
 
 
 @app.post("/send-media")
@@ -517,7 +603,10 @@ async def send_media(
         whatsapp_message_id=whatsapp_message_id,
         direction="outgoing",
         message_type=media_type,
-        body=display_body
+        body=display_body,
+        media_id=media_id,
+        media_mime=content_type,
+        media_filename=file.filename
     )
 
     db.add(message)
