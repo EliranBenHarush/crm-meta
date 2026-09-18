@@ -3,6 +3,9 @@ import html
 import json
 import os
 import requests
+import imageio_ffmpeg
+import subprocess
+import tempfile
 
 from fastapi import FastAPI, Request, Response, Depends, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
@@ -423,6 +426,9 @@ def get_conversations(
             "last_message": (
                 last_message.body if last_message else None
             ),
+            "last_direction": (
+                last_message.direction if last_message else None
+            ),
             "unread_count": (
                 conversation_state.unread_count
                 if conversation_state else 0
@@ -431,6 +437,56 @@ def get_conversations(
         })
 
     return result
+
+
+@app.post("/contacts/open")
+async def open_contact(
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    data = await request.json()
+    raw_phone = (data.get("phone") or "").strip()
+    name = (data.get("name") or "").strip() or None
+
+    phone = "".join(ch for ch in raw_phone if ch.isdigit())
+
+    if phone.startswith("0"):
+        phone = "972" + phone[1:]
+
+    if not phone:
+        raise HTTPException(
+            status_code=400,
+            detail="phone is required"
+        )
+
+    contact = db.query(Contact).filter(
+        Contact.phone == phone
+    ).first()
+
+    if not contact:
+        contact = Contact(
+            phone=phone,
+            name=name
+        )
+        db.add(contact)
+        db.commit()
+        db.refresh(contact)
+    elif name and not contact.name:
+        contact.name = name
+        contact.updated_at = datetime.utcnow()
+        db.commit()
+        db.refresh(contact)
+
+    return {
+        "id": contact.id,
+        "name": contact.name,
+        "phone": contact.phone,
+        "status": contact.status,
+        "last_message": None,
+        "last_direction": None,
+        "unread_count": 0,
+        "updated_at": contact.updated_at,
+    }
 
 
 @app.get("/messages/{phone}")
@@ -663,6 +719,58 @@ def fetch_media(media_id: str):
     )
 
 
+def _convert_webm_audio_to_mp3(content: bytes):
+    input_path = None
+    output_path = None
+
+    try:
+        with tempfile.NamedTemporaryFile(
+            suffix=".webm",
+            delete=False
+        ) as input_file:
+            input_file.write(content)
+            input_path = input_file.name
+
+        with tempfile.NamedTemporaryFile(
+            suffix=".mp3",
+            delete=False
+        ) as output_file:
+            output_path = output_file.name
+
+        ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+
+        subprocess.run(
+            [
+                ffmpeg,
+                "-y",
+                "-i",
+                input_path,
+                "-vn",
+                "-ac",
+                "1",
+                "-ar",
+                "48000",
+                "-b:a",
+                "64k",
+                output_path,
+            ],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=60,
+        )
+
+        with open(output_path, "rb") as converted:
+            return converted.read()
+    finally:
+        for path in (input_path, output_path):
+            if path and os.path.exists(path):
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+
+
 @app.post("/send-media")
 async def send_media(
     phone: str = Form(...),
@@ -685,6 +793,15 @@ async def send_media(
         )
 
     content_type = file.content_type or "application/octet-stream"
+    upload_filename = file.filename or "file"
+
+    if content_type.startswith("audio/webm") or content_type == "video/webm":
+        try:
+            content = _convert_webm_audio_to_mp3(content)
+            content_type = "audio/mpeg"
+            upload_filename = "voice-message.mp3"
+        except Exception as error:
+            print("VOICE CONVERSION ERROR:", error)
 
     if content_type.startswith("image/"):
         media_type = "image"
@@ -696,7 +813,7 @@ async def send_media(
         media_type = "document"
 
     upload_response = upload_whatsapp_media(
-        file.filename or "file",
+        upload_filename,
         content,
         content_type
     )
@@ -725,7 +842,7 @@ async def send_media(
         media_type,
         media_id,
         caption=caption.strip() or None,
-        filename=file.filename
+        filename=upload_filename
     )
 
     try:
@@ -759,7 +876,11 @@ async def send_media(
     display_body = caption.strip()
 
     if not display_body:
-        display_body = file.filename or f"[{media_type}]"
+        display_body = (
+            "🎤 הודעה קולית"
+            if media_type == "audio"
+            else file.filename or f"[{media_type}]"
+        )
 
     message = Message(
         contact_id=contact.id,
@@ -769,7 +890,7 @@ async def send_media(
         body=display_body,
         media_id=media_id,
         media_mime=content_type,
-        media_filename=file.filename,
+        media_filename=upload_filename,
         delivery_status="accepted",
         status_updated_at=datetime.utcnow()
     )
