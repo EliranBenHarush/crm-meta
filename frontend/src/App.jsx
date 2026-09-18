@@ -18,6 +18,11 @@ function App() {
   const [text, setText] = useState("");
   const [search, setSearch] = useState("");
   const [statusSaving, setStatusSaving] = useState(false);
+  const [notes, setNotes] = useState([]);
+  const [tags, setTags] = useState([]);
+  const [noteText, setNoteText] = useState("");
+  const [tagText, setTagText] = useState("");
+  const [crmSaving, setCrmSaving] = useState(false);
   const selectedRef = useRef(null);
 
   useEffect(() => {
@@ -32,7 +37,8 @@ function App() {
         if (
           payload.type !== "new_message" &&
           payload.type !== "contact_updated" &&
-          payload.type !== "conversation_read"
+          payload.type !== "conversation_read" &&
+          payload.type !== "contact_crm_updated"
         ) {
           return;
         }
@@ -48,6 +54,10 @@ function App() {
             if (payload.message?.direction === "incoming") {
               await markConversationRead(payload.phone);
             }
+          }
+
+          if (payload.type === "contact_crm_updated") {
+            await loadContactCrm(payload.phone);
           }
 
           if (payload.type === "contact_updated") {
@@ -130,10 +140,23 @@ function App() {
     setMessages(data);
   }
 
+  async function loadContactCrm(phone) {
+    const res = await fetch(`${API}/contacts/${phone}/crm`);
+
+    if (!res.ok) return;
+
+    const data = await res.json();
+    setNotes(data.notes || []);
+    setTags(data.tags || []);
+  }
+
   async function selectConversation(conversation) {
     selectedRef.current = conversation;
     setSelected(conversation);
-    await loadMessages(conversation.phone);
+    await Promise.all([
+      loadMessages(conversation.phone),
+      loadContactCrm(conversation.phone),
+    ]);
 
     if ((conversation.unread_count || 0) > 0) {
       await markConversationRead(conversation.phone);
@@ -163,6 +186,93 @@ function App() {
 
       selectedRef.current = updated;
       setSelected(updated);
+    }
+  }
+
+  async function addNote() {
+    const current = selectedRef.current;
+    const body = noteText.trim();
+
+    if (!current || !body || crmSaving) return;
+
+    setCrmSaving(true);
+
+    try {
+      const res = await fetch(
+        `${API}/contacts/${current.phone}/notes`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ body }),
+        }
+      );
+
+      if (!res.ok) {
+        const error = await res.json();
+        alert(JSON.stringify(error));
+        return;
+      }
+
+      setNoteText("");
+      await loadContactCrm(current.phone);
+    } finally {
+      setCrmSaving(false);
+    }
+  }
+
+  async function addTag() {
+    const current = selectedRef.current;
+    const name = tagText.trim();
+
+    if (!current || !name || crmSaving) return;
+
+    setCrmSaving(true);
+
+    try {
+      const res = await fetch(
+        `${API}/contacts/${current.phone}/tags`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ name }),
+        }
+      );
+
+      if (!res.ok) {
+        const error = await res.json();
+        alert(JSON.stringify(error));
+        return;
+      }
+
+      setTagText("");
+      await loadContactCrm(current.phone);
+    } finally {
+      setCrmSaving(false);
+    }
+  }
+
+  async function deleteTag(tagId) {
+    const current = selectedRef.current;
+
+    if (!current || crmSaving) return;
+
+    setCrmSaving(true);
+
+    try {
+      const res = await fetch(
+        `${API}/contacts/${current.phone}/tags/${tagId}`,
+        { method: "DELETE" }
+      );
+
+      if (!res.ok) return;
+
+      await loadContactCrm(current.phone);
+    } finally {
+      setCrmSaving(false);
     }
   }
 
@@ -391,6 +501,82 @@ function App() {
                   </option>
                 ))}
               </select>
+            </div>
+
+            <div className="customer-card">
+              <span>תגיות</span>
+
+              <div className="tag-list">
+                {tags.length === 0 ? (
+                  <small className="empty-crm-text">אין תגיות עדיין</small>
+                ) : (
+                  tags.map((tag) => (
+                    <button
+                      key={tag.id}
+                      className="crm-tag"
+                      title="לחץ להסרה"
+                      onClick={() => deleteTag(tag.id)}
+                    >
+                      {tag.name} ×
+                    </button>
+                  ))
+                )}
+              </div>
+
+              <div className="crm-inline-form">
+                <input
+                  value={tagText}
+                  onChange={(e) => setTagText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") addTag();
+                  }}
+                  placeholder="למשל: לקוח חם"
+                  maxLength={50}
+                />
+                <button onClick={addTag} disabled={crmSaving}>
+                  הוסף
+                </button>
+              </div>
+            </div>
+
+            <div className="customer-card">
+              <span>הערות פנימיות</span>
+
+              <textarea
+                className="note-input"
+                value={noteText}
+                onChange={(e) => setNoteText(e.target.value)}
+                placeholder="למשל: מחפש שולחן 3 מטר..."
+                maxLength={2000}
+              />
+
+              <button
+                className="save-note-button"
+                onClick={addNote}
+                disabled={crmSaving || !noteText.trim()}
+              >
+                שמור הערה
+              </button>
+
+              <div className="notes-list">
+                {notes.length === 0 ? (
+                  <small className="empty-crm-text">אין הערות עדיין</small>
+                ) : (
+                  notes.map((note) => (
+                    <div className="note-item" key={note.id}>
+                      <div>{note.body}</div>
+                      <small>
+                        {new Date(note.created_at).toLocaleString("he-IL", {
+                          day: "2-digit",
+                          month: "2-digit",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </small>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
 
             <div className="customer-card">
