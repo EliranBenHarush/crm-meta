@@ -1247,3 +1247,63 @@ input {
     opacity: 1;
   }
 }
+
+
+/* Delivery status and quick replies */
+
+.message-meta {
+  display: flex !important;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.delivery-check {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: -2px;
+  color: #8b979f;
+}
+
+.delivery-check.read {
+  color: #53bdeb;
+}
+
+.quick-replies {
+  background: #f0f2f5;
+  padding: 7px 12px 0;
+  display: flex;
+  gap: 7px;
+  overflow-x: auto;
+  flex-shrink: 0;
+}
+
+.quick-replies button {
+  flex: 0 0 auto;
+  max-width: 230px;
+  border: 1px solid #d8dee2;
+  background: #ffffff;
+  color: #344047;
+  border-radius: 999px;
+  padding: 7px 11px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.quick-replies button:hover {
+  border-color: #00a884;
+  color: #087f69;
+}
+
+.quick-replies::-webkit-scrollbar {
+  height: 5px;
+}
+
+.quick-replies::-webkit-scrollbar-thumb {
+  background: #c8d0d4;
+  border-radius: 999px;
+}
