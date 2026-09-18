@@ -1351,6 +1351,8 @@ async def send_product(
     data = await request.json()
     phone = (data.get("phone") or "").strip()
     product_id = data.get("product_id")
+    custom_caption = data.get("caption")
+    send_image = data.get("send_image", True)
 
     if not phone or not product_id:
         raise HTTPException(
@@ -1385,7 +1387,12 @@ async def send_product(
         caption_lines.append(f"מחיר: {price}")
 
     caption_lines.append(permalink)
-    caption = "\n".join(caption_lines)
+    default_caption = "\n".join(caption_lines)
+    caption = (
+        str(custom_caption).strip()
+        if custom_caption is not None and str(custom_caption).strip()
+        else default_caption
+    )
 
     contact = db.query(Contact).filter(
         Contact.phone == phone
@@ -1404,7 +1411,7 @@ async def send_product(
     media_filename = None
     message_type = "text"
 
-    if image_url:
+    if send_image and image_url:
         try:
             image_response = requests.get(
                 image_url,
