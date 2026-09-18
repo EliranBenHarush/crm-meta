@@ -2399,3 +2399,256 @@ select {
     max-width: 92%;
   }
 }
+
+
+/* Mobile polish pass based on real-device review */
+
+.mobile-plus-button,
+.send-icon,
+.composer-tools-tray {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .chat-header {
+    position: relative;
+    justify-content: flex-start;
+    background: #f7f9fa;
+    border-bottom: 1px solid #e6eaed;
+  }
+
+  .chat-header > div:last-child {
+    min-width: 0;
+  }
+
+  .chat-header h3 {
+    max-width: 62vw;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 16px;
+    font-weight: 700;
+  }
+
+  .chat-header span {
+    font-size: 11px;
+  }
+
+  .mobile-back-button {
+    width: 32px;
+    height: 40px;
+    padding: 0;
+    font-size: 32px;
+    flex: 0 0 auto;
+  }
+
+  .messages {
+    padding: 10px 9px 18px;
+  }
+
+  .message {
+    max-width: 82%;
+    padding: 7px 9px 5px;
+    border-radius: 9px;
+    font-size: 14px;
+    line-height: 1.4;
+  }
+
+  .message.outgoing {
+    border-top-left-radius: 3px;
+  }
+
+  .message.incoming {
+    border-top-right-radius: 3px;
+  }
+
+  .message-menu-button {
+    opacity: .72;
+    font-size: 17px;
+  }
+
+  .chat-media-audio {
+    width: 235px;
+    max-width: 68vw;
+    height: 38px;
+    display: block;
+    margin: 2px 0;
+  }
+
+  .quick-replies {
+    display: none;
+    padding: 7px 8px 6px;
+    background: #f0f2f5;
+    border-top: 1px solid #e4e8ea;
+    gap: 6px;
+  }
+
+  .quick-replies.mobile-open {
+    display: flex;
+  }
+
+  .quick-replies button {
+    max-width: 210px;
+    background: #fff;
+    border: 1px solid #dce2e5;
+    box-shadow: 0 1px 1px rgba(11,20,26,.04);
+    font-size: 12px;
+    padding: 7px 11px;
+  }
+
+  .composer-tools-tray {
+    display: flex;
+    gap: 12px;
+    padding: 10px 12px 8px;
+    background: #ffffff;
+    border-top: 1px solid #e7ebed;
+    justify-content: flex-start;
+  }
+
+  .composer-tools-tray button {
+    width: 72px;
+    min-height: 62px;
+    border: 0;
+    border-radius: 14px;
+    background: #f5f7f8;
+    color: #3b4a54;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    cursor: pointer;
+  }
+
+  .composer-tools-tray button span {
+    font-size: 22px;
+    line-height: 1;
+  }
+
+  .composer-tools-tray button small {
+    font-size: 10px;
+    color: #667781;
+  }
+
+  .composer {
+    background: #f0f2f5;
+    padding: 7px 8px calc(7px + env(safe-area-inset-bottom));
+    gap: 6px;
+    border-top: 1px solid #e5e9eb;
+  }
+
+  .composer .attach-button,
+  .composer .product-button {
+    display: none;
+  }
+
+  .composer .mobile-plus-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    min-width: 38px;
+    height: 38px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: #54656f;
+    font-size: 29px;
+    font-weight: 300;
+    border-radius: 50%;
+  }
+
+  .composer .mobile-plus-button:hover {
+    background: #e3e7e9;
+  }
+
+  .composer .voice-button {
+    width: 40px;
+    min-width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: transparent;
+    border: 0;
+    font-size: 19px;
+    padding: 0;
+  }
+
+  .composer .voice-button.recording {
+    width: auto;
+    min-width: 72px;
+    border-radius: 18px;
+    padding: 0 10px;
+  }
+
+  .composer > input:not(.media-file-input) {
+    height: 42px;
+    border-radius: 21px;
+    background: #ffffff;
+    padding: 0 15px;
+    font-size: 15px;
+    box-shadow: none;
+  }
+
+  .composer .send-message-button {
+    width: 42px;
+    min-width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #00a884;
+  }
+
+  .composer .send-label {
+    display: none;
+  }
+
+  .composer .send-icon {
+    display: inline-block;
+    color: #ffffff;
+    font-size: 17px;
+    line-height: 1;
+    transform: rotate(180deg);
+  }
+
+  .composer .send-message-button:disabled {
+    opacity: .4;
+  }
+
+  .media-preview,
+  .message-context-bar {
+    padding: 8px 10px;
+  }
+}
+
+@media (max-width: 390px) {
+  .composer .product-button {
+    display: none;
+  }
+
+  .composer {
+    gap: 4px;
+  }
+
+  .composer .mobile-plus-button {
+    width: 34px;
+    min-width: 34px;
+  }
+
+  .composer .voice-button {
+    width: 36px;
+    min-width: 36px;
+  }
+
+  .composer .send-message-button {
+    width: 40px;
+    min-width: 40px;
+  }
+
+  .chat-media-audio {
+    width: 215px;
+    max-width: 66vw;
+  }
+}
