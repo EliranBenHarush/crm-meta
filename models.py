@@ -32,6 +32,9 @@ class Message(Base):
     direction = Column(String, nullable=False)  # incoming / outgoing
     message_type = Column(String, default="text")
     body = Column(Text, nullable=True)
+    media_id = Column(String, nullable=True, index=True)
+    media_mime = Column(String, nullable=True)
+    media_filename = Column(String, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
 
