@@ -39,3 +39,18 @@ class Message(Base):
         "Contact",
         back_populates="messages"
     )
+
+
+class ConversationState(Base):
+    __tablename__ = "conversation_states"
+
+    id = Column(Integer, primary_key=True, index=True)
+    contact_id = Column(
+        Integer,
+        ForeignKey("contacts.id"),
+        unique=True,
+        nullable=False,
+        index=True
+    )
+    unread_count = Column(Integer, default=0, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
