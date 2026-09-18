@@ -33,6 +33,9 @@ function App() {
   const [products, setProducts] = useState([]);
   const [productLoading, setProductLoading] = useState(false);
   const [productSendingId, setProductSendingId] = useState(null);
+  const [selectedProduct, setSelectedProduct] = useState(null);
+  const [productMessage, setProductMessage] = useState("");
+  const [productSendImage, setProductSendImage] = useState(true);
   const [messageMenuId, setMessageMenuId] = useState(null);
   const [editingMessage, setEditingMessage] = useState(null);
   const [replyToMessage, setReplyToMessage] = useState(null);
@@ -659,7 +662,24 @@ function App() {
     await loadProducts("");
   }
 
-  async function sendProduct(product) {
+  function chooseProductForSend(product) {
+    setSelectedProduct(product);
+    setProductSendImage(true);
+
+    const lines = [`*${product.name}*`];
+
+    if (product.price) {
+      lines.push(`מחיר: ${product.price}`);
+    }
+
+    if (product.permalink) {
+      lines.push(product.permalink);
+    }
+
+    setProductMessage(lines.join("\n"));
+  }
+
+  async function sendProduct(product = selectedProduct) {
     const current = selectedRef.current;
 
     if (!current || !product?.id || productSendingId) return;
@@ -675,6 +695,8 @@ function App() {
         body: JSON.stringify({
           phone: current.phone,
           product_id: product.id,
+          caption: productMessage,
+          send_image: productSendImage,
         }),
       });
 
@@ -686,6 +708,8 @@ function App() {
       }
 
       setProductPickerOpen(false);
+      setSelectedProduct(null);
+      setProductMessage("");
       await loadMessages(current.phone);
       await loadConversations(false);
     } finally {
@@ -1490,7 +1514,11 @@ function App() {
       {productPickerOpen && (
         <div
           className="product-modal-backdrop"
-          onClick={() => setProductPickerOpen(false)}
+          onClick={() => {
+            setProductPickerOpen(false);
+            setSelectedProduct(null);
+            setProductMessage("");
+          }}
         >
           <div
             className="product-modal"
@@ -1504,7 +1532,11 @@ function App() {
               <button
                 type="button"
                 className="product-modal-close"
-                onClick={() => setProductPickerOpen(false)}
+                onClick={() => {
+                  setProductPickerOpen(false);
+                  setSelectedProduct(null);
+                  setProductMessage("");
+                }}
               >
                 ×
               </button>
@@ -1556,17 +1588,84 @@ function App() {
                     <button
                       type="button"
                       className="send-product-button"
-                      onClick={() => sendProduct(product)}
+                      onClick={() => chooseProductForSend(product)}
                       disabled={productSendingId !== null}
                     >
-                      {productSendingId === product.id
-                        ? "שולח..."
-                        : "שלח"}
+                      בחר
                     </button>
                   </div>
                 ))
               )}
             </div>
+
+            {selectedProduct && (
+              <div className="product-send-preview">
+                <div className="product-preview-head">
+                  <div className="product-thumb">
+                    {selectedProduct.image ? (
+                      <img src={selectedProduct.image} alt={selectedProduct.name} />
+                    ) : (
+                      <span>🛍️</span>
+                    )}
+                  </div>
+                  <div>
+                    <strong>{selectedProduct.name}</strong>
+                    <span>{selectedProduct.price || "ללא מחיר"}</span>
+                    {selectedProduct.permalink && (
+                      <a
+                        href={selectedProduct.permalink}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        פתח מוצר באתר ↗
+                      </a>
+                    )}
+                  </div>
+                </div>
+
+                <label className="product-image-toggle">
+                  <input
+                    type="checkbox"
+                    checked={productSendImage}
+                    onChange={(e) => setProductSendImage(e.target.checked)}
+                  />
+                  <span>שלח גם את תמונת המוצר</span>
+                </label>
+
+                <label className="product-message-label">
+                  <span>הודעה ללקוח — אפשר לערוך לפני השליחה</span>
+                  <textarea
+                    value={productMessage}
+                    onChange={(e) => setProductMessage(e.target.value)}
+                    rows={6}
+                  />
+                </label>
+
+                <div className="product-preview-actions">
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => {
+                      setSelectedProduct(null);
+                      setProductMessage("");
+                    }}
+                  >
+                    חזרה למוצרים
+                  </button>
+
+                  <button
+                    type="button"
+                    className="send-product-button confirm"
+                    onClick={() => sendProduct(selectedProduct)}
+                    disabled={productSendingId !== null || !productMessage.trim()}
+                  >
+                    {productSendingId === selectedProduct.id
+                      ? "שולח..."
+                      : "שלח עכשיו ב-WhatsApp"}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
