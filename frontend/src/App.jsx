@@ -13,6 +13,14 @@ const STATUS_OPTIONS = [
 
 const ASSIGNEE_OPTIONS = ["", "אלירן", "אורן"];
 
+const QUICK_REPLIES = [
+  "היי, תודה שפנית אלינו 👋",
+  "אני בודק וחוזר אליך בהקדם.",
+  "מצרף לך פרטים ומחיר.",
+  "אפשר בבקשה שם מלא וטלפון?",
+  "האספקה היא עד 7 ימי עסקים.",
+];
+
 function App() {
   const [conversations, setConversations] = useState([]);
   const [selected, setSelected] = useState(null);
@@ -65,7 +73,8 @@ function App() {
           payload.type !== "contact_updated" &&
           payload.type !== "conversation_read" &&
           payload.type !== "contact_crm_updated" &&
-          payload.type !== "message_deleted"
+          payload.type !== "message_deleted" &&
+          payload.type !== "message_status"
         ) {
           return;
         }
@@ -87,7 +96,10 @@ function App() {
             await loadContactCrm(payload.phone);
           }
 
-          if (payload.type === "message_deleted") {
+          if (
+            payload.type === "message_deleted" ||
+            payload.type === "message_status"
+          ) {
             await loadMessages(payload.phone);
           }
 
@@ -1013,13 +1025,39 @@ function App() {
                     {!m.body && m.type === "text" && <div>[הודעה]</div>}
                   </div>
 
-                  <small>
-                    {new Date(m.created_at).toLocaleTimeString(
-                      "he-IL",
-                      {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      }
+                  <small className="message-meta">
+                    <span>
+                      {new Date(m.created_at).toLocaleTimeString(
+                        "he-IL",
+                        {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        }
+                      )}
+                    </span>
+                    {m.direction === "outgoing" && (
+                      <span
+                        className={[
+                          "delivery-check",
+                          m.delivery_status === "read" ? "read" : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" ")}
+                        title={
+                          m.delivery_status === "read"
+                            ? "נקרא"
+                            : m.delivery_status === "delivered"
+                            ? "נמסר"
+                            : m.delivery_status === "sent"
+                            ? "נשלח"
+                            : "התקבל ב-WhatsApp"
+                        }
+                      >
+                        {m.delivery_status === "read" ||
+                        m.delivery_status === "delivered"
+                          ? "✓✓"
+                          : "✓"}
+                      </span>
                     )}
                   </small>
                 </div>
@@ -1066,6 +1104,23 @@ function App() {
                 </button>
               </div>
             )}
+
+            <div className="quick-replies">
+              {QUICK_REPLIES.map((reply) => (
+                <button
+                  key={reply}
+                  type="button"
+                  onClick={() => {
+                    setEditingMessage(null);
+                    setReplyToMessage(null);
+                    setText(reply);
+                  }}
+                  title={reply}
+                >
+                  {reply}
+                </button>
+              ))}
+            </div>
 
             <div className="composer">
               <input
