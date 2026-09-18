@@ -1078,3 +1078,59 @@ input {
   font-weight: 700;
   margin-bottom: 5px;
 }
+
+
+/* Keep the composer pinned to the bottom of the chat. */
+.chat {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.chat-header,
+.composer,
+.media-preview {
+  flex-shrink: 0;
+}
+
+.messages {
+  min-height: 0;
+}
+
+.message-content {
+  min-width: 0;
+}
+
+.media-image-link {
+  display: block;
+}
+
+.chat-media-image,
+.chat-media-video {
+  display: block;
+  width: min(420px, 100%);
+  max-height: 420px;
+  object-fit: contain;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.chat-media-audio {
+  display: block;
+  width: min(360px, 100%);
+}
+
+.chat-media-document {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+  font-weight: 700;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.media-caption {
+  margin-top: 7px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
