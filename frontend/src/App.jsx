@@ -48,6 +48,8 @@ function App() {
   const [messageMenuId, setMessageMenuId] = useState(null);
   const [editingMessage, setEditingMessage] = useState(null);
   const [replyToMessage, setReplyToMessage] = useState(null);
+  const [quickRepliesOpen, setQuickRepliesOpen] = useState(false);
+  const [composerToolsOpen, setComposerToolsOpen] = useState(false);
   const fileInputRef = useRef(null);
   const [search, setSearch] = useState("");
   const [statusSaving, setStatusSaving] = useState(false);
@@ -1290,7 +1292,12 @@ function App() {
                     )}
 
                     {m.body &&
-                      !(m.type === "document" && m.media_id) && (
+                      !(m.type === "document" && m.media_id) &&
+                      !(
+                        m.type === "audio" &&
+                        m.media_id &&
+                        m.body === "🎤 הודעה קולית"
+                      ) && (
                         <div className="media-caption">{m.body}</div>
                       )}
 
@@ -1377,7 +1384,14 @@ function App() {
               </div>
             )}
 
-            <div className="quick-replies">
+            <div
+              className={[
+                "quick-replies",
+                quickRepliesOpen ? "mobile-open" : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+            >
               {QUICK_REPLIES.map((reply) => (
                 <button
                   key={reply}
@@ -1386,6 +1400,7 @@ function App() {
                     setEditingMessage(null);
                     setReplyToMessage(null);
                     setText(reply);
+                    setQuickRepliesOpen(false);
                   }}
                   title={reply}
                 >
@@ -1393,6 +1408,41 @@ function App() {
                 </button>
               ))}
             </div>
+
+            {composerToolsOpen && (
+              <div className="composer-tools-tray">
+                <button
+                  type="button"
+                  onClick={() => {
+                    fileInputRef.current?.click();
+                    setComposerToolsOpen(false);
+                  }}
+                >
+                  <span>📎</span>
+                  <small>קובץ</small>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    openProductPicker();
+                    setComposerToolsOpen(false);
+                  }}
+                >
+                  <span>🛍️</span>
+                  <small>מוצר</small>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQuickRepliesOpen((value) => !value);
+                    setComposerToolsOpen(false);
+                  }}
+                >
+                  <span>⚡</span>
+                  <small>תשובה מהירה</small>
+                </button>
+              </div>
+            )}
 
             <div className="composer">
               <input
@@ -1402,6 +1452,16 @@ function App() {
                 accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip"
                 onChange={pickMedia}
               />
+
+              <button
+                type="button"
+                className="mobile-plus-button"
+                onClick={() => setComposerToolsOpen((value) => !value)}
+                disabled={mediaSending}
+                title="אפשרויות נוספות"
+              >
+                +
+              </button>
 
               <button
                 type="button"
@@ -1455,10 +1515,17 @@ function App() {
               />
 
               <button
+                className="send-message-button"
                 onClick={sendMessage}
                 disabled={mediaSending || (!mediaFile && !text.trim())}
+                title="שלח"
               >
-                {mediaSending ? "שולח..." : "שלח"}
+                <span className="send-label">
+                  {mediaSending ? "שולח..." : "שלח"}
+                </span>
+                <span className="send-icon" aria-hidden="true">
+                  {mediaSending ? "…" : "➤"}
+                </span>
               </button>
             </div>
           </>
