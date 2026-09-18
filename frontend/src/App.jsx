@@ -36,6 +36,15 @@ function App() {
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [productMessage, setProductMessage] = useState("");
   const [productSendImage, setProductSendImage] = useState(true);
+  const [conversationFilter, setConversationFilter] = useState("all");
+  const [newChatOpen, setNewChatOpen] = useState(false);
+  const [newChatPhone, setNewChatPhone] = useState("");
+  const [newChatName, setNewChatName] = useState("");
+  const [voiceRecording, setVoiceRecording] = useState(false);
+  const [voiceSeconds, setVoiceSeconds] = useState(0);
+  const mediaRecorderRef = useRef(null);
+  const voiceChunksRef = useRef([]);
+  const voiceTimerRef = useRef(null);
   const [messageMenuId, setMessageMenuId] = useState(null);
   const [editingMessage, setEditingMessage] = useState(null);
   const [replyToMessage, setReplyToMessage] = useState(null);
@@ -203,9 +212,15 @@ function App() {
   const filteredConversations = useMemo(() => {
     const query = search.trim().toLowerCase();
 
-    if (!query) return conversations;
-
     return conversations.filter((conversation) => {
+      const matchesFilter =
+        conversationFilter !== "unanswered" ||
+        conversation.last_direction === "incoming";
+
+      if (!matchesFilter) return false;
+
+      if (!query) return true;
+
       const name = (conversation.name || "").toLowerCase();
       const phone = (conversation.phone || "").toLowerCase();
       const status = (conversation.status || "").toLowerCase();
@@ -218,7 +233,125 @@ function App() {
         lastMessage.includes(query)
       );
     });
-  }, [conversations, search]);
+  }, [conversations, search, conversationFilter]);
+
+  async function createNewChat() {
+    const phone = newChatPhone.trim();
+
+    if (!phone) return;
+
+    const res = await fetch(`${API}/contacts/open`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        phone,
+        name: newChatName.trim(),
+      }),
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      alert(JSON.stringify(data));
+      return;
+    }
+
+    setNewChatOpen(false);
+    setNewChatPhone("");
+    setNewChatName("");
+    setView("chat");
+    await loadConversations(false);
+    await selectConversation(data);
+  }
+
+  async function startVoiceRecording() {
+    if (voiceRecording || mediaSending) return;
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+
+      voiceChunksRef.current = [];
+      mediaRecorderRef.current = recorder;
+      setVoiceSeconds(0);
+      setVoiceRecording(true);
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          voiceChunksRef.current.push(event.data);
+        }
+      };
+
+      recorder.onstop = async () => {
+        clearInterval(voiceTimerRef.current);
+        voiceTimerRef.current = null;
+        setVoiceRecording(false);
+
+        stream.getTracks().forEach((track) => track.stop());
+
+        const blob = new Blob(voiceChunksRef.current, {
+          type: recorder.mimeType || "audio/webm",
+        });
+
+        if (!blob.size) return;
+
+        const file = new File(
+          [blob],
+          `voice-${Date.now()}.webm`,
+          { type: blob.type || "audio/webm" }
+        );
+
+        const current = selectedRef.current;
+        if (!current) return;
+
+        setMediaSending(true);
+
+        try {
+          const form = new FormData();
+          form.append("phone", current.phone);
+          form.append("file", file);
+          form.append("caption", "");
+
+          const res = await fetch(`${API}/send-media`, {
+            method: "POST",
+            body: form,
+          });
+
+          const data = await res.json();
+
+          if (!res.ok) {
+            alert(JSON.stringify(data));
+            return;
+          }
+
+          await loadMessages(current.phone);
+          await loadConversations(false);
+        } finally {
+          setMediaSending(false);
+          setVoiceSeconds(0);
+        }
+      };
+
+      recorder.start();
+
+      voiceTimerRef.current = setInterval(() => {
+        setVoiceSeconds((value) => value + 1);
+      }, 1000);
+    } catch (error) {
+      console.error("Microphone error:", error);
+      alert("לא הצלחתי לפתוח את המיקרופון. בדוק הרשאת מיקרופון בדפדפן.");
+    }
+  }
+
+  function stopVoiceRecording() {
+    const recorder = mediaRecorderRef.current;
+
+    if (recorder && recorder.state !== "inactive") {
+      recorder.stop();
+    }
+  }
 
   async function loadConversations(autoSelect = true) {
     const res = await fetch(`${API}/conversations`);
@@ -926,6 +1059,30 @@ function App() {
           />
         </div>
 
+        <div className="conversation-tools">
+          <button
+            type="button"
+            className={conversationFilter === "all" ? "active" : ""}
+            onClick={() => setConversationFilter("all")}
+          >
+            הכל
+          </button>
+          <button
+            type="button"
+            className={conversationFilter === "unanswered" ? "active" : ""}
+            onClick={() => setConversationFilter("unanswered")}
+          >
+            לא נענו
+          </button>
+          <button
+            type="button"
+            className="new-chat-button"
+            onClick={() => setNewChatOpen(true)}
+          >
+            + שיחה חדשה
+          </button>
+        </div>
+
         <div className="conversation-list">
           {filteredConversations.length === 0 ? (
             <div className="no-results">לא נמצאו לקוחות</div>
@@ -1243,6 +1400,20 @@ function App() {
                 🛍️
               </button>
 
+              <button
+                type="button"
+                className={voiceRecording ? "voice-button recording" : "voice-button"}
+                onClick={
+                  voiceRecording ? stopVoiceRecording : startVoiceRecording
+                }
+                disabled={mediaSending && !voiceRecording}
+                title={voiceRecording ? "עצור ושלח" : "הקלט הודעה קולית"}
+              >
+                {voiceRecording
+                  ? `■ ${voiceSeconds}s`
+                  : "🎤"}
+              </button>
+
               <input
                 value={text}
                 onChange={(e) => setText(e.target.value)}
@@ -1509,6 +1680,62 @@ function App() {
             )}
           </section>
         </main>
+      )}
+
+      {newChatOpen && (
+        <div
+          className="product-modal-backdrop"
+          onClick={() => setNewChatOpen(false)}
+        >
+          <div
+            className="new-chat-modal"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="product-modal-header">
+              <div>
+                <h3>שיחה חדשה</h3>
+                <span>אפשר להכניס 05... או 972...</span>
+              </div>
+              <button
+                type="button"
+                className="product-modal-close"
+                onClick={() => setNewChatOpen(false)}
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="new-chat-form">
+              <input
+                value={newChatPhone}
+                onChange={(e) => setNewChatPhone(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") createNewChat();
+                }}
+                placeholder="מספר טלפון"
+                autoFocus
+              />
+              <input
+                value={newChatName}
+                onChange={(e) => setNewChatName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") createNewChat();
+                }}
+                placeholder="שם הלקוח (לא חובה)"
+              />
+              <button
+                type="button"
+                onClick={createNewChat}
+                disabled={!newChatPhone.trim()}
+              >
+                פתח שיחה
+              </button>
+              <small>
+                אם אין חלון שירות פתוח מול הלקוח, WhatsApp עשוי לדרוש תבנית מאושרת להודעה הראשונה.
+              </small>
+            </div>
+          </div>
+        </div>
       )}
 
       {productPickerOpen && (
