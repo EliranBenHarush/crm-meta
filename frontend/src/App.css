@@ -1134,3 +1134,116 @@ input {
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+
+/* WhatsApp-style message actions */
+
+.message {
+  position: relative;
+}
+
+.message-menu-button {
+  position: absolute;
+  top: 5px;
+  inset-inline-start: 5px;
+  border: none;
+  background: transparent;
+  color: #667781;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  padding: 2px 5px;
+  border-radius: 6px;
+  z-index: 3;
+}
+
+.message:hover .message-menu-button,
+.message-menu-button:focus {
+  opacity: 1;
+}
+
+.message-action-menu {
+  position: absolute;
+  top: 28px;
+  inset-inline-start: 6px;
+  min-width: 150px;
+  background: #ffffff;
+  border: 1px solid #e3e7ea;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(11, 20, 26, 0.16);
+  overflow: hidden;
+  z-index: 20;
+}
+
+.message-action-menu button {
+  width: 100%;
+  border: none;
+  background: #ffffff;
+  padding: 10px 12px;
+  text-align: right;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+}
+
+.message-action-menu button:hover {
+  background: #f5f7f8;
+}
+
+.message-action-menu button.danger {
+  color: #b42318;
+}
+
+.message-context-bar {
+  background: #f0f2f5;
+  border-top: 1px solid #dfe3e7;
+  border-inline-start: 4px solid #00a884;
+  padding: 9px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.message-context-bar > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.message-context-bar strong {
+  font-size: 12px;
+  color: #087f69;
+}
+
+.message-context-bar span {
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.message-context-bar small {
+  color: #7a8188;
+  font-size: 10px;
+}
+
+.message-context-bar > button {
+  border: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: #ffffff;
+  color: #667781;
+  font-size: 22px;
+  cursor: pointer;
+}
+
+@media (hover: none) {
+  .message-menu-button {
+    opacity: 1;
+  }
+}
