@@ -1502,3 +1502,104 @@ input {
     height: 58px;
   }
 }
+
+
+/* Product send preview */
+
+.product-send-preview {
+  border-top: 1px solid #edf0f2;
+  padding: 16px 18px 18px;
+  background: #fbfcfc;
+}
+
+.product-preview-head {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.product-preview-head > div:last-child {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.product-preview-head strong {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.product-preview-head span {
+  color: #087f69;
+  font-weight: 800;
+}
+
+.product-preview-head a {
+  color: #0b6aa2;
+  text-decoration: none;
+  font-size: 12px;
+}
+
+.product-image-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.product-message-label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.product-message-label > span {
+  font-size: 12px;
+  color: #667781;
+}
+
+.product-message-label textarea {
+  width: 100%;
+  min-height: 130px;
+  resize: vertical;
+  border: 1px solid #d8dee2;
+  border-radius: 10px;
+  padding: 11px 12px;
+  outline: none;
+  font-family: inherit;
+  line-height: 1.5;
+}
+
+.product-message-label textarea:focus {
+  border-color: #00a884;
+  box-shadow: 0 0 0 2px rgba(0, 168, 132, 0.12);
+}
+
+.product-preview-actions {
+  display: flex;
+  gap: 9px;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+.product-preview-actions .secondary {
+  border: 1px solid #d8dee2;
+  background: #ffffff;
+  color: #4c5960;
+  border-radius: 9px;
+  padding: 10px 14px;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 700;
+}
+
+.send-product-button.confirm {
+  height: auto;
+  min-width: 150px;
+  padding: 10px 16px;
+}
