@@ -100,3 +100,34 @@ class FollowUpReminder(Base):
     due_at = Column(DateTime, nullable=False, index=True)
     completed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+
+class BroadcastRun(Base):
+    __tablename__ = "broadcast_runs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    template_name = Column(String, nullable=False)
+    language = Column(String, nullable=False)
+    audience_count = Column(Integer, default=0, nullable=False)
+    success_count = Column(Integer, default=0, nullable=False)
+    failed_count = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class BroadcastDelivery(Base):
+    __tablename__ = "broadcast_deliveries"
+
+    id = Column(Integer, primary_key=True, index=True)
+    broadcast_id = Column(
+        Integer,
+        ForeignKey("broadcast_runs.id"),
+        nullable=False,
+        index=True
+    )
+    contact_id = Column(Integer, ForeignKey("contacts.id"), nullable=False, index=True)
+    phone = Column(String, nullable=False)
+    status = Column(String, nullable=False)
+    whatsapp_message_id = Column(String, nullable=True)
+    error = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
