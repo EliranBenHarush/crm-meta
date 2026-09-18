@@ -5,3 +5,5 @@ requests
 python-dotenv
 psycopg2-binary
 python-multipart
+
+imageio-ffmpeg
