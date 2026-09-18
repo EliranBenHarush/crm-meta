@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 
 from database import Base, engine, SessionLocal
-from models import Contact, Message
+from models import Contact, Message, ConversationState
 from whatsapp import send_whatsapp_message
 
 
@@ -203,9 +203,26 @@ async def receive_whatsapp(
         )
 
         db.add(new_message)
+
+        conversation_state = db.query(ConversationState).filter(
+            ConversationState.contact_id == contact.id
+        ).first()
+
+        if not conversation_state:
+            conversation_state = ConversationState(
+                contact_id=contact.id,
+                unread_count=0
+            )
+            db.add(conversation_state)
+
+        conversation_state.unread_count = (
+            conversation_state.unread_count or 0
+        ) + 1
+
         db.commit()
         db.refresh(new_message)
         db.refresh(contact)
+        db.refresh(conversation_state)
 
         await broadcast_event({
             "type": "new_message",
@@ -254,6 +271,10 @@ def get_conversations(
             .first()
         )
 
+        conversation_state = db.query(ConversationState).filter(
+            ConversationState.contact_id == contact.id
+        ).first()
+
         result.append({
             "id": contact.id,
             "name": contact.name,
@@ -261,6 +282,10 @@ def get_conversations(
             "status": contact.status,
             "last_message": (
                 last_message.body if last_message else None
+            ),
+            "unread_count": (
+                conversation_state.unread_count
+                if conversation_state else 0
             ),
             "updated_at": contact.updated_at
         })
@@ -441,4 +466,50 @@ async def update_contact_status(
         "success": True,
         "phone": contact.phone,
         "status": contact.status
+    }
+
+
+
+@app.post("/contacts/{phone}/read")
+async def mark_conversation_read(
+    phone: str,
+    db: Session = Depends(get_db)
+):
+    contact = db.query(Contact).filter(
+        Contact.phone == phone
+    ).first()
+
+    if not contact:
+        raise HTTPException(
+            status_code=404,
+            detail="Contact not found"
+        )
+
+    conversation_state = db.query(ConversationState).filter(
+        ConversationState.contact_id == contact.id
+    ).first()
+
+    if not conversation_state:
+        conversation_state = ConversationState(
+            contact_id=contact.id,
+            unread_count=0
+        )
+        db.add(conversation_state)
+    else:
+        conversation_state.unread_count = 0
+
+    db.commit()
+    db.refresh(conversation_state)
+
+    await broadcast_event({
+        "type": "conversation_read",
+        "phone": contact.phone,
+        "contact_id": contact.id,
+        "unread_count": 0,
+    })
+
+    return {
+        "success": True,
+        "phone": contact.phone,
+        "unread_count": 0
     }
