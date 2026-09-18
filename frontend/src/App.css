@@ -476,3 +476,45 @@ input {
     max-width: 85%;
   }
 }
+
+.no-results {
+  padding: 24px 16px;
+  text-align: center;
+  color: #777;
+  font-size: 14px;
+}
+
+.conversation-meta {
+  margin-top: 5px;
+}
+
+.status-pill {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #eef2f6;
+  color: #4b5563;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.status-select {
+  width: 100%;
+  border: 1px solid #dfe3e8;
+  background: #fff;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font: inherit;
+  outline: none;
+  cursor: pointer;
+}
+
+.status-select:focus {
+  border-color: #00a884;
+  box-shadow: 0 0 0 2px rgba(0, 168, 132, 0.12);
+}
+
+.status-select:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
