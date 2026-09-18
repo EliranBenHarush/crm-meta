@@ -20,6 +20,9 @@ function App() {
   const [text, setText] = useState("");
   const [mediaFile, setMediaFile] = useState(null);
   const [mediaSending, setMediaSending] = useState(false);
+  const [messageMenuId, setMessageMenuId] = useState(null);
+  const [editingMessage, setEditingMessage] = useState(null);
+  const [replyToMessage, setReplyToMessage] = useState(null);
   const fileInputRef = useRef(null);
   const [search, setSearch] = useState("");
   const [statusSaving, setStatusSaving] = useState(false);
@@ -61,7 +64,8 @@ function App() {
           payload.type !== "new_message" &&
           payload.type !== "contact_updated" &&
           payload.type !== "conversation_read" &&
-          payload.type !== "contact_crm_updated"
+          payload.type !== "contact_crm_updated" &&
+          payload.type !== "message_deleted"
         ) {
           return;
         }
@@ -81,6 +85,10 @@ function App() {
 
           if (payload.type === "contact_crm_updated") {
             await loadContactCrm(payload.phone);
+          }
+
+          if (payload.type === "message_deleted") {
+            await loadMessages(payload.phone);
           }
 
           if (payload.type === "contact_updated") {
@@ -232,6 +240,9 @@ function App() {
   async function selectConversation(conversation) {
     selectedRef.current = conversation;
     setSelected(conversation);
+    setMessageMenuId(null);
+    setEditingMessage(null);
+    setReplyToMessage(null);
     await Promise.all([
       loadMessages(conversation.phone),
       loadContactCrm(conversation.phone),
@@ -649,6 +660,89 @@ function App() {
     }
   }
 
+  function messagePreview(message) {
+    const value =
+      message.body ||
+      message.media_filename ||
+      (message.type === "image"
+        ? "תמונה"
+        : message.type === "video"
+        ? "וידאו"
+        : message.type === "audio"
+        ? "אודיו"
+        : message.type === "document"
+        ? "מסמך"
+        : "הודעה");
+
+    return value.length > 80 ? `${value.slice(0, 80)}…` : value;
+  }
+
+  function startReply(message) {
+    setReplyToMessage(message);
+    setEditingMessage(null);
+    setMessageMenuId(null);
+  }
+
+  function startEdit(message) {
+    if (message.direction !== "outgoing" || message.type !== "text") return;
+
+    setEditingMessage(message);
+    setReplyToMessage(null);
+    setText(message.body || "");
+    setMessageMenuId(null);
+  }
+
+  async function copyMessage(message) {
+    const value = message.body || message.media_filename || "";
+
+    if (!value) return;
+
+    try {
+      await navigator.clipboard.writeText(value);
+    } catch {
+      window.prompt("העתק את הטקסט:", value);
+    }
+
+    setMessageMenuId(null);
+  }
+
+  async function deleteMessageFromCrm(message) {
+    if (message.direction !== "outgoing") return;
+
+    const approved = window.confirm(
+      "למחוק את ההודעה מה-CRM?\n\nהיא לא תימחק מה-WhatsApp של הלקוח."
+    );
+
+    if (!approved) return;
+
+    const res = await fetch(`${API}/messages/${message.id}`, {
+      method: "DELETE",
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      alert(JSON.stringify(data));
+      return;
+    }
+
+    setMessageMenuId(null);
+
+    if (editingMessage?.id === message.id) {
+      setEditingMessage(null);
+      setText("");
+    }
+
+    if (replyToMessage?.id === message.id) {
+      setReplyToMessage(null);
+    }
+
+    if (selectedRef.current) {
+      await loadMessages(selectedRef.current.phone);
+      await loadConversations(false);
+    }
+  }
+
   async function sendMessage() {
     if (mediaFile) {
       await sendMedia();
@@ -657,8 +751,16 @@ function App() {
 
     if (!selectedRef.current || !text.trim()) return;
 
-    const messageText = text;
     const current = selectedRef.current;
+    let messageText = text.trim();
+
+    if (editingMessage) {
+      messageText = `✏️ תיקון להודעה קודמת:\n${messageText}`;
+    } else if (replyToMessage) {
+      messageText =
+        `↩️ תגובה ל: "${messagePreview(replyToMessage)}"\n${messageText}`;
+    }
+
     setText("");
 
     const res = await fetch(`${API}/send-message`, {
@@ -678,6 +780,8 @@ function App() {
       return;
     }
 
+    setEditingMessage(null);
+    setReplyToMessage(null);
     await loadMessages(current.phone);
     await loadConversations(false);
   }
@@ -802,6 +906,45 @@ function App() {
                       : "message incoming"
                   }
                 >
+                  <button
+                    className="message-menu-button"
+                    type="button"
+                    title="פעולות"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setMessageMenuId(
+                        messageMenuId === m.id ? null : m.id
+                      );
+                    }}
+                  >
+                    ⋮
+                  </button>
+
+                  {messageMenuId === m.id && (
+                    <div className="message-action-menu">
+                      <button type="button" onClick={() => startReply(m)}>
+                        השב
+                      </button>
+                      <button type="button" onClick={() => copyMessage(m)}>
+                        העתק
+                      </button>
+                      {m.direction === "outgoing" && m.type === "text" && (
+                        <button type="button" onClick={() => startEdit(m)}>
+                          ערוך / תקן
+                        </button>
+                      )}
+                      {m.direction === "outgoing" && (
+                        <button
+                          type="button"
+                          className="danger"
+                          onClick={() => deleteMessageFromCrm(m)}
+                        >
+                          מחק מה-CRM
+                        </button>
+                      )}
+                    </div>
+                  )}
+
                   <div className="message-content">
                     {m.type === "image" && m.media_id && (
                       <a
@@ -883,6 +1026,35 @@ function App() {
               ))}
             </div>
 
+            {(editingMessage || replyToMessage) && (
+              <div className="message-context-bar">
+                <div>
+                  <strong>
+                    {editingMessage ? "✏️ תיקון הודעה" : "↩️ תגובה להודעה"}
+                  </strong>
+                  <span>
+                    {messagePreview(editingMessage || replyToMessage)}
+                  </span>
+                  {editingMessage && (
+                    <small>
+                      WhatsApp לא מאפשר עריכה דרך ה-API — תישלח הודעת תיקון חדשה.
+                    </small>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingMessage(null);
+                    setReplyToMessage(null);
+                    if (editingMessage) setText("");
+                  }}
+                  title="בטל"
+                >
+                  ×
+                </button>
+              </div>
+            )}
+
             {mediaFile && (
               <div className="media-preview">
                 <div>
@@ -923,6 +1095,10 @@ function App() {
                 placeholder={
                   mediaFile
                     ? "הוסף כיתוב לקובץ (לא חובה)..."
+                    : editingMessage
+                    ? "כתוב את התיקון..."
+                    : replyToMessage
+                    ? "כתוב תגובה..."
                     : "כתוב הודעה..."
                 }
               />
