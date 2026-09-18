@@ -2,7 +2,7 @@ import asyncio
 import json
 import os
 
-from fastapi import FastAPI, Request, Response, Depends, HTTPException
+from fastapi import FastAPI, Request, Response, Depends, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -10,7 +10,7 @@ from datetime import datetime
 
 from database import Base, engine, SessionLocal
 from models import Contact, Message, ConversationState, ContactNote, ContactTag, ContactAssignment, FollowUpReminder, BroadcastRun, BroadcastDelivery
-from whatsapp import send_whatsapp_message, get_message_templates, send_whatsapp_template
+from whatsapp import send_whatsapp_message, get_message_templates, send_whatsapp_template, upload_whatsapp_media, send_whatsapp_media
 
 
 Base.metadata.create_all(bind=engine)
@@ -410,6 +410,142 @@ async def send_message(
 
     return {
         "success": True,
+        "whatsapp": api_data
+    }
+
+
+@app.post("/send-media")
+async def send_media(
+    phone: str = Form(...),
+    file: UploadFile = File(...),
+    caption: str = Form(""),
+    db: Session = Depends(get_db)
+):
+    if not phone:
+        raise HTTPException(
+            status_code=400,
+            detail="phone is required"
+        )
+
+    content = await file.read()
+
+    if not content:
+        raise HTTPException(
+            status_code=400,
+            detail="File is empty"
+        )
+
+    content_type = file.content_type or "application/octet-stream"
+
+    if content_type.startswith("image/"):
+        media_type = "image"
+    elif content_type.startswith("video/"):
+        media_type = "video"
+    elif content_type.startswith("audio/"):
+        media_type = "audio"
+    else:
+        media_type = "document"
+
+    upload_response = upload_whatsapp_media(
+        file.filename or "file",
+        content,
+        content_type
+    )
+
+    try:
+        upload_data = upload_response.json()
+    except Exception:
+        upload_data = {"raw": upload_response.text}
+
+    if upload_response.status_code >= 400:
+        raise HTTPException(
+            status_code=upload_response.status_code,
+            detail=upload_data
+        )
+
+    media_id = upload_data.get("id")
+
+    if not media_id:
+        raise HTTPException(
+            status_code=502,
+            detail="WhatsApp did not return a media id"
+        )
+
+    send_response = send_whatsapp_media(
+        phone,
+        media_type,
+        media_id,
+        caption=caption.strip() or None,
+        filename=file.filename
+    )
+
+    try:
+        api_data = send_response.json()
+    except Exception:
+        api_data = {"raw": send_response.text}
+
+    if send_response.status_code >= 400:
+        raise HTTPException(
+            status_code=send_response.status_code,
+            detail=api_data
+        )
+
+    contact = db.query(Contact).filter(
+        Contact.phone == phone
+    ).first()
+
+    if not contact:
+        contact = Contact(phone=phone)
+        db.add(contact)
+        db.commit()
+        db.refresh(contact)
+
+    whatsapp_message_id = None
+
+    if api_data.get("messages"):
+        whatsapp_message_id = (
+            api_data["messages"][0].get("id")
+        )
+
+    display_body = caption.strip()
+
+    if not display_body:
+        display_body = file.filename or f"[{media_type}]"
+
+    message = Message(
+        contact_id=contact.id,
+        whatsapp_message_id=whatsapp_message_id,
+        direction="outgoing",
+        message_type=media_type,
+        body=display_body
+    )
+
+    db.add(message)
+    contact.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(message)
+    db.refresh(contact)
+
+    await broadcast_event({
+        "type": "new_message",
+        "phone": phone,
+        "contact_id": contact.id,
+        "name": contact.name,
+        "status": contact.status,
+        "message": {
+            "id": message.id,
+            "direction": message.direction,
+            "type": message.message_type,
+            "body": message.body,
+            "created_at": message.created_at,
+        },
+        "updated_at": contact.updated_at,
+    })
+
+    return {
+        "success": True,
+        "media_type": media_type,
+        "media_id": media_id,
         "whatsapp": api_data
     }
 
