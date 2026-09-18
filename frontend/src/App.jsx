@@ -974,7 +974,16 @@ function App() {
                     key={delivery.contact_id}
                     className={`delivery-row ${delivery.status}`}
                   >
-                    <span>{delivery.name || delivery.phone}</span>
+                    <div className="delivery-info">
+                      <span>{delivery.name || delivery.phone}</span>
+                      {delivery.status === "failed" && delivery.error && (
+                        <small className="delivery-error">
+                          {delivery.error?.error?.message ||
+                            delivery.error?.message ||
+                            JSON.stringify(delivery.error)}
+                        </small>
+                      )}
+                    </div>
                     <strong>
                       {delivery.status === "sent" ? "נשלח ✓" : "נכשל"}
                     </strong>
