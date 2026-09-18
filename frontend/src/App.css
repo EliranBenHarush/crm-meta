@@ -1603,3 +1603,120 @@ input {
   min-width: 150px;
   padding: 10px 16px;
 }
+
+
+/* New chat, unanswered filter, voice recorder */
+
+.conversation-tools {
+  display: flex;
+  gap: 6px;
+  padding: 0 12px 10px;
+  flex-wrap: wrap;
+}
+
+.conversation-tools button {
+  border: 1px solid #dfe4e7;
+  background: #ffffff;
+  color: #52616a;
+  border-radius: 8px;
+  padding: 7px 9px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.conversation-tools button.active {
+  background: #e7f6ef;
+  color: #087f69;
+  border-color: #b9e3d5;
+}
+
+.conversation-tools .new-chat-button {
+  margin-inline-start: auto;
+  background: #00a884;
+  color: #ffffff;
+  border-color: #00a884;
+}
+
+.new-chat-modal {
+  width: min(430px, 94vw);
+  background: #ffffff;
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(11, 20, 26, 0.28);
+  overflow: hidden;
+}
+
+.new-chat-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px;
+}
+
+.new-chat-form input {
+  width: 100%;
+  border: 1px solid #d8dee2;
+  border-radius: 10px;
+  padding: 12px 13px;
+  outline: none;
+  font-family: inherit;
+}
+
+.new-chat-form input:focus {
+  border-color: #00a884;
+  box-shadow: 0 0 0 2px rgba(0, 168, 132, 0.12);
+}
+
+.new-chat-form > button {
+  border: none;
+  background: #00a884;
+  color: #ffffff;
+  border-radius: 10px;
+  padding: 12px 14px;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 800;
+}
+
+.new-chat-form > button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.new-chat-form small {
+  color: #77838a;
+  line-height: 1.45;
+}
+
+.composer .voice-button {
+  min-width: 50px;
+  width: auto;
+  padding: 0 12px;
+  background: #ffffff;
+  color: #54656f;
+  border: 1px solid #e0e4e7;
+  font-size: 18px;
+}
+
+.composer .voice-button:hover {
+  background: #f7f8f9;
+}
+
+.composer .voice-button.recording {
+  background: #ffe9e7;
+  color: #b42318;
+  border-color: #f0b6b1;
+  min-width: 78px;
+}
+
+@media (max-width: 650px) {
+  .conversation-tools .new-chat-button {
+    margin-inline-start: 0;
+  }
+
+  .composer .voice-button {
+    min-width: 44px;
+    padding: 0 9px;
+  }
+}
