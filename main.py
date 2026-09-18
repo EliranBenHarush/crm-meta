@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 
 from database import Base, engine, SessionLocal
-from models import Contact, Message, ConversationState
+from models import Contact, Message, ConversationState, ContactNote, ContactTag
 from whatsapp import send_whatsapp_message
 
 
@@ -513,3 +513,213 @@ async def mark_conversation_read(
         "phone": contact.phone,
         "unread_count": 0
     }
+
+
+
+@app.get("/contacts/{phone}/crm")
+def get_contact_crm(
+    phone: str,
+    db: Session = Depends(get_db)
+):
+    contact = db.query(Contact).filter(
+        Contact.phone == phone
+    ).first()
+
+    if not contact:
+        raise HTTPException(
+            status_code=404,
+            detail="Contact not found"
+        )
+
+    notes = (
+        db.query(ContactNote)
+        .filter(ContactNote.contact_id == contact.id)
+        .order_by(ContactNote.created_at.desc())
+        .all()
+    )
+
+    tags = (
+        db.query(ContactTag)
+        .filter(ContactTag.contact_id == contact.id)
+        .order_by(ContactTag.created_at.asc())
+        .all()
+    )
+
+    return {
+        "notes": [
+            {
+                "id": note.id,
+                "body": note.body,
+                "created_at": note.created_at,
+            }
+            for note in notes
+        ],
+        "tags": [
+            {
+                "id": tag.id,
+                "name": tag.name,
+                "created_at": tag.created_at,
+            }
+            for tag in tags
+        ],
+    }
+
+
+@app.post("/contacts/{phone}/notes")
+async def add_contact_note(
+    phone: str,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    data = await request.json()
+    body = (data.get("body") or "").strip()
+
+    if not body:
+        raise HTTPException(
+            status_code=400,
+            detail="Note body is required"
+        )
+
+    if len(body) > 2000:
+        raise HTTPException(
+            status_code=400,
+            detail="Note is too long"
+        )
+
+    contact = db.query(Contact).filter(
+        Contact.phone == phone
+    ).first()
+
+    if not contact:
+        raise HTTPException(
+            status_code=404,
+            detail="Contact not found"
+        )
+
+    note = ContactNote(
+        contact_id=contact.id,
+        body=body
+    )
+
+    db.add(note)
+    db.commit()
+    db.refresh(note)
+
+    await broadcast_event({
+        "type": "contact_crm_updated",
+        "phone": contact.phone,
+        "contact_id": contact.id,
+        "resource": "note",
+    })
+
+    return {
+        "id": note.id,
+        "body": note.body,
+        "created_at": note.created_at,
+    }
+
+
+@app.post("/contacts/{phone}/tags")
+async def add_contact_tag(
+    phone: str,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    data = await request.json()
+    name = (data.get("name") or "").strip()
+
+    if not name:
+        raise HTTPException(
+            status_code=400,
+            detail="Tag name is required"
+        )
+
+    if len(name) > 50:
+        raise HTTPException(
+            status_code=400,
+            detail="Tag is too long"
+        )
+
+    contact = db.query(Contact).filter(
+        Contact.phone == phone
+    ).first()
+
+    if not contact:
+        raise HTTPException(
+            status_code=404,
+            detail="Contact not found"
+        )
+
+    existing = db.query(ContactTag).filter(
+        ContactTag.contact_id == contact.id,
+        ContactTag.name == name
+    ).first()
+
+    if existing:
+        return {
+            "id": existing.id,
+            "name": existing.name,
+            "created_at": existing.created_at,
+        }
+
+    tag = ContactTag(
+        contact_id=contact.id,
+        name=name
+    )
+
+    db.add(tag)
+    db.commit()
+    db.refresh(tag)
+
+    await broadcast_event({
+        "type": "contact_crm_updated",
+        "phone": contact.phone,
+        "contact_id": contact.id,
+        "resource": "tag",
+    })
+
+    return {
+        "id": tag.id,
+        "name": tag.name,
+        "created_at": tag.created_at,
+    }
+
+
+@app.delete("/contacts/{phone}/tags/{tag_id}")
+async def delete_contact_tag(
+    phone: str,
+    tag_id: int,
+    db: Session = Depends(get_db)
+):
+    contact = db.query(Contact).filter(
+        Contact.phone == phone
+    ).first()
+
+    if not contact:
+        raise HTTPException(
+            status_code=404,
+            detail="Contact not found"
+        )
+
+    tag = db.query(ContactTag).filter(
+        ContactTag.id == tag_id,
+        ContactTag.contact_id == contact.id
+    ).first()
+
+    if not tag:
+        raise HTTPException(
+            status_code=404,
+            detail="Tag not found"
+        )
+
+    db.delete(tag)
+    db.commit()
+
+    await broadcast_event({
+        "type": "contact_crm_updated",
+        "phone": contact.phone,
+        "contact_id": contact.id,
+        "resource": "tag",
+    })
+
+    return {"success": True}
