@@ -803,18 +803,70 @@ function App() {
                   }
                 >
                   <div className="message-content">
-                    {m.type !== "text" && (
-                      <div className="media-label">
-                        {m.type === "image" && "📷 תמונה"}
-                        {m.type === "video" && "🎬 וידאו"}
-                        {m.type === "audio" && "🎵 אודיו"}
-                        {m.type === "document" && "📄 מסמך"}
-                        {m.type === "template" && "📝 תבנית"}
-                        {!["image", "video", "audio", "document", "template"].includes(m.type) &&
-                          `[${m.type}]`}
-                      </div>
+                    {m.type === "image" && m.media_id && (
+                      <a
+                        href={`${API}/media/${m.media_id}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="media-image-link"
+                      >
+                        <img
+                          className="chat-media-image"
+                          src={`${API}/media/${m.media_id}`}
+                          alt={m.media_filename || "תמונה"}
+                        />
+                      </a>
                     )}
-                    {m.body && <div>{m.body}</div>}
+
+                    {m.type === "video" && m.media_id && (
+                      <video
+                        className="chat-media-video"
+                        src={`${API}/media/${m.media_id}`}
+                        controls
+                        preload="metadata"
+                      />
+                    )}
+
+                    {m.type === "audio" && m.media_id && (
+                      <audio
+                        className="chat-media-audio"
+                        src={`${API}/media/${m.media_id}`}
+                        controls
+                        preload="metadata"
+                      />
+                    )}
+
+                    {m.type === "document" && m.media_id && (
+                      <a
+                        className="chat-media-document"
+                        href={`${API}/media/${m.media_id}`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        📄 {m.media_filename || m.body || "פתח מסמך"}
+                      </a>
+                    )}
+
+                    {m.type !== "text" &&
+                      !m.media_id &&
+                      m.type !== "template" && (
+                        <div className="media-label">
+                          {m.type === "image" && "📷 תמונה"}
+                          {m.type === "video" && "🎬 וידאו"}
+                          {m.type === "audio" && "🎵 אודיו"}
+                          {m.type === "document" && "📄 מסמך"}
+                        </div>
+                      )}
+
+                    {m.type === "template" && (
+                      <div className="media-label">📝 תבנית</div>
+                    )}
+
+                    {m.body &&
+                      !(m.type === "document" && m.media_id) && (
+                        <div className="media-caption">{m.body}</div>
+                      )}
+
                     {!m.body && m.type === "text" && <div>[הודעה]</div>}
                   </div>
 
